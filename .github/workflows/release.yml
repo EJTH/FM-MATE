@@ -40,11 +40,16 @@ jobs:
         run: |
           sed -i 's/^version = .*/version = "${{ github.event.inputs.version }}"/' src-tauri/Cargo.toml
 
+      - name: Update Tauri bundle version
+        run: |
+          jq --arg version "${{ github.event.inputs.version }}" '.version = $version' src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp
+          mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
+
       - name: Commit version bump
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add package.json package-lock.json src-tauri/Cargo.toml
+          git add package.json package-lock.json src-tauri/Cargo.toml src-tauri/tauri.conf.json
           git commit -m "chore: bump version to ${{ github.event.inputs.version }}"
 
       - name: Create git tag
@@ -107,7 +112,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - run: npm ci
-      - run: npm run tauri -- build
+      - name: Build app
+        run: npm run tauri -- build
+        env:
+          FM_MATE_VERSION: ${{ github.event.inputs.version }}
 
       - name: Decode certificate (Windows only)
         if: matrix.platform == 'windows-x64'

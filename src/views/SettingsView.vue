@@ -4,6 +4,7 @@ import { invoke, isTauri } from '@tauri-apps/api/core'
 import { LazyStore } from '@tauri-apps/plugin-store'
 import { DEFAULT_FIRMWARE_REPOSITORY_URL } from '../config'
 import ToolDownloadsSection from '../components/ToolDownloadsSection.vue'
+import AppUpdateSection from '../components/AppUpdateSection.vue'
 
 const preferences = reactive({ automaticallyBackupBeforeSwitching: true, firmwareRepositoryUrl: DEFAULT_FIRMWARE_REPOSITORY_URL })
 const repositoryUrlDraft = ref('')
@@ -119,6 +120,7 @@ async function saveRepositoryUrl() {
         <div class="repo-control"><input id="firmware-repository-url" v-model="repositoryUrlDraft" type="url" :placeholder="DEFAULT_FIRMWARE_REPOSITORY_URL" :disabled="!settingsLoaded" :aria-invalid="!repositoryUrlIsValid(repositoryUrlDraft)" /><button class="outline-button" type="submit" :disabled="!settingsLoaded || !repositoryUrlIsValid(repositoryUrlDraft)">SAVE URL</button></div>
         <p class="settings-feedback" :class="{ 'is-error': settingsError }" aria-live="polite">{{ settingsMessage }}</p>
       </form>
+      <AppUpdateSection />
       <ToolDownloadsSection />
     </div>
   </section>

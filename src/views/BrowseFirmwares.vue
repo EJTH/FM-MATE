@@ -283,7 +283,15 @@ function kindLabel(firmware: FirmwareRecord) {
   return typeof firmware.kind === 'string' && firmware.kind.trim() ? firmware.kind : 'Other'
 }
 
-const availableKinds = computed(() => [...new Set(firmwares.value.map(kindLabel))].sort((a, b) => a.localeCompare(b)))
+const availableKinds = computed(() => {
+  const kinds = [...new Set(firmwares.value.map(kindLabel))]
+  const counts = new Map<string, number>()
+  for (const firmware of firmwares.value) {
+    const kind = kindLabel(firmware)
+    counts.set(kind, (counts.get(kind) ?? 0) + 1)
+  }
+  return kinds.sort((a, b) => (counts.get(b) ?? 0) - (counts.get(a) ?? 0))
+})
 const kindCounts = computed(() => {
   const counts = new Map<string, number>()
   for (const firmware of firmwares.value) {
@@ -355,7 +363,7 @@ const visibleFirmwares = computed(() => {
       <fieldset class="kind-filters" :disabled="!availableKinds.length">
         <legend>FILTER BY KIND</legend>
         <div>
-          <label v-for="kind in availableKinds" :key="kind"><input v-model="selectedKinds" type="checkbox" :value="kind" />{{ kind }} <span class="kind-count">({{ kindCounts.get(kind) ?? 0 }})</span></label>
+          <div v-for="kind in availableKinds" :key="kind" class="kind-option"><input v-model="selectedKinds" type="checkbox" :value="kind" :aria-label="`Toggle ${kind}`" /><button type="button" class="kind-name" :title="`Show only ${kind}`" @click="selectedKinds = [kind]">{{ kind }} <span class="kind-count">({{ kindCounts.get(kind) ?? 0 }})</span></button></div>
           <span v-if="!availableKinds.length" class="no-kinds">Kinds appear when a catalog is loaded.</span>
         </div>
       </fieldset>
@@ -370,7 +378,7 @@ const visibleFirmwares = computed(() => {
             <option value="installs">Installs</option>
           </select>
         </label>
-        <button class="sort-direction" type="button" :aria-label="sortDescending ? 'Sort ascending' : 'Sort descending'" :title="sortDescending ? 'Sort ascending' : 'Sort descending'" :aria-pressed="sortDescending" @click="sortDescending = !sortDescending">{{ sortDescending ? '↓' : '↑' }}</button>
+        <button class="sort-direction" type="button" :aria-label="sortDescending ? 'Sort ascending' : 'Sort descending'" :title="sortDescending ? 'Sort ascending' : 'Sort descending'" :aria-pressed="sortDescending" @click="sortDescending = !sortDescending"><span>{{ sortDescending ? '↓' : '↑' }}</span></button>
       </div>
     </div>
 
@@ -425,7 +433,9 @@ const visibleFirmwares = computed(() => {
 .kind-filters { min-width: 0; margin: 0; padding: 0; border: 0; }
 .kind-filters > div { display: grid; min-width: 0; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); align-items: center; gap: 8px 0px; }
 .kind-filters legend { margin: 0 0 7px; color: #9b8aa8; font-size: 10px; font-weight: 700; letter-spacing: .13em; }
-.kind-filters label { width: 100%; min-width: 0; display: inline-flex; align-items: center; gap: 6px; color: #d2c9bd; font-size: 13px; text-transform: capitalize; white-space: nowrap; }
+.kind-filters .kind-option { width: 100%; min-width: 0; display: inline-flex; align-items: center; gap: 6px; }
+.kind-filters .kind-name { padding: 0; color: #d2c9bd; background: none; border: 0; font: inherit; font-size: 13px; text-transform: capitalize; white-space: nowrap; cursor: pointer; }
+.kind-filters .kind-name:hover { color: #fff; }
 .kind-filters .kind-count { color: #9b8aa8; }
 .kind-filters input { width: 14px; height: 14px; margin: 0; accent-color: #59d3b7; }
 .kind-filters:disabled { opacity: .55; }
@@ -434,6 +444,7 @@ const visibleFirmwares = computed(() => {
 .sort-control { display: flex; flex: 0 0 auto; align-items: center; gap: 9px; color: #b49bdc; font-size: 10px; font-weight: 700; letter-spacing: .13em; }
 .sort-control select { min-width: 120px; height: 32px; padding: 0 9px; color: #e0d9cf; background: #211f1e; border: 1px solid #554b58; font: 13px 'Barlow Condensed', sans-serif; }
 .sort-direction { width: 32px; height: 32px; padding: 0; color: #d9c8ed; background: #292625; border: 1px solid #665772; font-size: 18px; line-height: 1; cursor: pointer; }
+.sort-direction span { position:relative; top: -3px; }
 .sort-direction:hover { color: #fff; background: #332e35; border-color: #9b83b7; }
 .sort-direction:focus-visible { outline: 2px solid #65e1c1; outline-offset: 2px; }
 .catalog-source { max-width: min(72%, 700px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

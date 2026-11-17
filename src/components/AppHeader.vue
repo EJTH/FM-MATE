@@ -61,7 +61,7 @@ const views: { id: View; label: string }[] = [
 .header-lcd .lcd-content h2 { font-size: clamp(10px, 1.1vw, 14px); }.header-lcd .lcd-message, .header-lcd .lcd-connection { margin-top: 1px; font-size: clamp(7px, .8vw, 10px); }.header-lcd .lcd-hint { margin-top: 2px; padding-top: 1px; font-size: clamp(6px, .7vw, 9px); }
 .header-lcd .lcd-message { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.header-lcd .lcd-message--complete { animation: lcd-completion-blink .8s steps(2, start) infinite; }.header-lcd .lcd-device-icon .lcd-progress-value { width: auto; height: auto; background: none; font-size: clamp(8px, .9vw, 14px); font-weight: 700; line-height: 1; }
 .header-lcd:focus-visible, .top-tab:focus-visible { outline: 2px solid #65e1c1; outline-offset: 2px; }
-@media (max-width: 1180px) {
+@media (max-width: 1000px) {
   .topbar-inner { grid-template-columns: minmax(0, 1fr) minmax(190px, 34%); grid-template-areas: 'brand lcd' 'nav nav'; row-gap: 12px; }
   .brand { grid-area: brand; }.header-lcd { grid-area: lcd; max-width: 360px; justify-self: end; }
   .top-nav { grid-area: nav; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }

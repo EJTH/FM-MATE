@@ -72,6 +72,7 @@ pub fn run() {
             firmwarehub::delete_installed_save,
             tooldownload::get_tools_status,
             tooldownload::check_or_update_tool,
+            tooldownload::check_app_update,
             tooldownload::open_firmware_in_emulator,
             tooldownload::try_firmware_in_emulator,
             tooldownload::open_save_in_emulator,

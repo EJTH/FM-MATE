@@ -67,11 +67,11 @@ onMounted(async () => {
       const savedView = await libraryStore.get<string>('lastActiveView')
       if (savedView && validViews.includes(savedView as View)) activeView.value = savedView as View
       const hasLaunched = await libraryStore.get<boolean>('hasCompletedWelcome')
-      welcomeVisible.value = !hasLaunched
+      welcomeVisible.value = import.meta.env.DEV || !hasLaunched
     } else {
       const savedView = localStorage.getItem('fm-mate.lastActiveView')
       if (savedView && validViews.includes(savedView as View)) activeView.value = savedView as View
-      welcomeVisible.value = localStorage.getItem('fm-mate.hasCompletedWelcome') !== 'true'
+      welcomeVisible.value = import.meta.env.DEV || localStorage.getItem('fm-mate.hasCompletedWelcome') !== 'true'
     }
   } catch {
     // Fall back to the default tab and show onboarding if stored app state is unavailable.
