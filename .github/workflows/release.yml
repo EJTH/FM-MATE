@@ -58,21 +58,23 @@ jobs:
           git push origin main
           git push origin v${{ github.event.inputs.version }}
 
+      - uses: dtolnay/rust-toolchain@stable
+
       - name: Generate changelog
         id: changelog
         run: |
           # Install git-cliff
-          curl -sSL https://github.com/orhun/git-cliff/releases/download/v0.13.2/git-cliff-0.13.2-x86_64-unknown-linux-gnu.tar.gz | tar xz
+          cargo install git-cliff
           
           # Get the previous tag
           PREV_TAG=$(git tag --sort=-version:refname --list 'v*' | head -n 2 | tail -n 1)
           
           if [ -z "$PREV_TAG" ]; then
             # First release - generate from all commits
-            ./git-cliff v${{ github.event.inputs.version }} > changelog.md
+            git-cliff v${{ github.event.inputs.version }} > changelog.md
           else
             # Generate changelog between previous and current release
-            ./git-cliff ${PREV_TAG}..v${{ github.event.inputs.version }} > changelog.md
+            git-cliff ${PREV_TAG}..v${{ github.event.inputs.version }} > changelog.md
           fi
           
           # Read changelog and set as output
@@ -112,10 +114,33 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - run: npm ci
+      - name: Setup macOS signing (macOS only)
+        if: matrix.platform == 'macos-arm64' && secrets.APPLE_CERTIFICATE != ''
+        run: |
+          # Create keychain
+          security create-keychain -p ${{ secrets.KEYCHAIN_PASSWORD }} build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p ${{ secrets.KEYCHAIN_PASSWORD }} build.keychain
+          
+          # Import certificate
+          echo "${{ secrets.APPLE_CERTIFICATE }}" | base64 -d > certificate.p12
+          security import certificate.p12 -k build.keychain -P "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k ${{ secrets.KEYCHAIN_PASSWORD }} build.keychain
+          
+          # Cleanup
+          rm certificate.p12
       - name: Build app
         run: npm run tauri -- build
         env:
           FM_MATE_VERSION: ${{ github.event.inputs.version }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - name: Cleanup keychain (macOS only)
+        if: matrix.platform == 'macos-arm64' && always()
+        run: |
+          security delete-keychain build.keychain || true
 
       - name: Decode certificate (Windows only)
         if: matrix.platform == 'windows-x64'
