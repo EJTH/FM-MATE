@@ -34,8 +34,14 @@
     ],
     "macOS": {
       "minimumSystemVersion": "11.0",
-      "signingIdentity": "-",
+      "signingIdentity": null,
       "entitlements": null
+    },
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "signingIdentity": null,
+      "timestampUrl": null
     }
   }
 }
