@@ -423,7 +423,7 @@ fn extract_tool_tar_gz(bytes: &[u8], destination: &Path) -> Result<(), String> {
             std::io::copy(&mut entry, &mut file)
                 .map_err(|error| format!("Could not extract tool file: {error}"))?;
             #[cfg(unix)]
-            if let Ok(Some(mode)) = entry.header().mode() {
+            if let Ok(mode) = entry.header().mode() {
                 use std::os::unix::fs::PermissionsExt;
                 let _ = std::fs::set_permissions(
                     &output,
