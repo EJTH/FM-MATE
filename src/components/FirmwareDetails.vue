@@ -108,11 +108,9 @@ function editorUrl() {
           <div class="details-version__actions">
             <button class="details-emulator-link" type="button" @click="emit('openInEmulator', version)">OPEN IN EMULATOR</button>
             <button v-if="editorUrl()" class="details-editor-link" type="button" @click="emit('openEditor', version)">EDITOR ↗</button>
-            <button class="details-saves-link" type="button" @click="emit('openSaves', { firmwareId: firmware.id, version: version.version })">SAVES ↗</button>
+            <button class="details-saves-link" type="button" @click="emit('openSaves', { firmwareId: firmware.id, version: version.version })">{{ version.saves.length }} {{ version.saves.length === 1 ? 'SAVE' : 'SAVES' }} ↗</button>
             <button class="details-delete-link" type="button" @click="emit('deleteVersion', version)">DELETE</button>
           </div>
-          <ul v-if="version.saves.length"><li v-for="save in version.saves" :key="save">{{ save }}</li></ul>
-          <p v-else class="no-version-saves">No saves in this version.</p>
         </article>
       </section>
       <section v-if="detailsLinks.length" class="details-links"><h3>LINKS</h3><a v-for="link in detailsLinks" :key="link.key" :class="{ 'manual-link': link.key === 'cheat' || link.key === 'cheats' }" :href="link.href" target="_blank" rel="noreferrer">{{ link.key === 'cheats' ? 'Documentation' : link.label }} ↗</a></section>

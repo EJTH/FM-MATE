@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import LcdDisplay from './LcdDisplay.vue'
+import type { MFlasherLcdState } from '../types/flasher'
 
 type View = 'browse' | 'downloaded' | 'backups' | 'settings' | 'lcd'
 
-defineProps<{ activeView: View }>()
+defineProps<{ activeView: View; lcdState: MFlasherLcdState }>()
 const emit = defineEmits<{ navigate: [view: View] }>()
 
 const views: { id: View; label: string }[] = [
@@ -33,7 +34,14 @@ const views: { id: View; label: string }[] = [
         </button>
       </nav>
       <button class="header-lcd" type="button" role="tab" :aria-selected="activeView === 'lcd'" aria-label="Open LCD display" @click="emit('navigate', 'lcd')">
-        <LcdDisplay />
+        <LcdDisplay :title="lcdState.title" :message="lcdState.message" :message-class="lcdState.messageClass" :connection="lcdState.connection" :hint="lcdState.hint">
+          <template #graphic>
+            <div class="lcd-device-icon" aria-hidden="true">
+              <span v-if="lcdState.progress === null" />
+              <span v-else class="lcd-progress-value">{{ lcdState.progress }}%</span>
+            </div>
+          </template>
+        </LcdDisplay>
       </button>
     </div>
   </header>
@@ -51,6 +59,7 @@ const views: { id: View; label: string }[] = [
 .header-lcd .lcd-bezel { width: 100%; padding: 3px; border: 0; box-shadow: none; }.header-lcd .lcd-screen { min-height: 45px; padding: 5px 7px; column-gap: 6px; grid-template-columns: minmax(22px, 24%) minmax(0, 1fr); aspect-ratio: auto; }
 .header-lcd .lcd-device-icon { border-width: 2px; }.header-lcd .lcd-device-icon span { height: 2px; background: repeating-linear-gradient(90deg, currentColor 0 2px, transparent 2px 5px); }.header-lcd .lcd-content { padding-left: 6px; }
 .header-lcd .lcd-content h2 { font-size: clamp(10px, 1.1vw, 14px); }.header-lcd .lcd-message, .header-lcd .lcd-connection { margin-top: 1px; font-size: clamp(7px, .8vw, 10px); }.header-lcd .lcd-hint { margin-top: 2px; padding-top: 1px; font-size: clamp(6px, .7vw, 9px); }
+.header-lcd .lcd-message { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.header-lcd .lcd-message--complete { animation: lcd-completion-blink .8s steps(2, start) infinite; }.header-lcd .lcd-device-icon .lcd-progress-value { width: auto; height: auto; background: none; font-size: clamp(8px, .9vw, 14px); font-weight: 700; line-height: 1; }
 .header-lcd:focus-visible, .top-tab:focus-visible { outline: 2px solid #65e1c1; outline-offset: 2px; }
 @media (max-width: 1180px) {
   .topbar-inner { grid-template-columns: minmax(0, 1fr) minmax(190px, 34%); grid-template-areas: 'brand lcd' 'nav nav'; row-gap: 12px; }

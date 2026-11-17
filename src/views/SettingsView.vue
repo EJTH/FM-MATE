@@ -3,7 +3,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { LazyStore } from '@tauri-apps/plugin-store'
 import { DEFAULT_FIRMWARE_REPOSITORY_URL } from '../config'
-import ToolDownloadCard from '../components/ToolDownloadCard.vue'
+import ToolDownloadsSection from '../components/ToolDownloadsSection.vue'
 
 const preferences = reactive({ automaticallyBackupBeforeSwitching: true, firmwareRepositoryUrl: DEFAULT_FIRMWARE_REPOSITORY_URL })
 const repositoryUrlDraft = ref('')
@@ -14,14 +14,6 @@ const preferencesStore = new LazyStore('settings.json', { autoSave: true })
 const firmwareFolderDraft = ref('')
 const firmwareFolderMessage = ref('')
 const firmwareFolderError = ref(false)
-const toolStatuses = ref<Record<string, { installed: boolean; version: string | null }>>({})
-const toolBusyId = ref('')
-const toolMessage = ref('')
-const toolError = ref(false)
-const tools = [
-  { id: 'm-flasher', name: 'M-Flasher', description: 'This tool is required to flash new firmwares and perform backups.', repository: 'jvitkauskas/m-flasher' },
-  { id: 'fm1-emu', name: 'FM1-Emu', description: 'This emulator is optional. It enables you to test firmwares locally.', repository: 'joakimeriksson/fm1-emu' },
-]
 
 onMounted(async () => {
   try {
@@ -40,7 +32,6 @@ onMounted(async () => {
     if (isTauri()) {
       try {
         firmwareFolderDraft.value = await invoke<string>('get_firmware_folder_path')
-        await loadTools()
       } catch {
         firmwareFolderError.value = true
         firmwareFolderMessage.value = 'Could not load the firmware folder or tool status.'
@@ -69,11 +60,6 @@ async function savePreferences() {
   }
 }
 
-async function loadTools() {
-  const statuses = await invoke<Array<{ id: string; installed: boolean; version: string | null }>>('get_tools_status')
-  toolStatuses.value = Object.fromEntries(statuses.map((tool) => [tool.id, { installed: tool.installed, version: tool.version }]))
-}
-
 async function saveFirmwareFolderPath(path = firmwareFolderDraft.value) {
   if (!settingsLoaded.value || !isTauri()) return
   firmwareFolderError.value = false
@@ -84,25 +70,6 @@ async function saveFirmwareFolderPath(path = firmwareFolderDraft.value) {
   } catch (error) {
     firmwareFolderError.value = true
     firmwareFolderMessage.value = error instanceof Error ? error.message : 'Could not save firmware folder.'
-  }
-}
-
-async function runToolAction(id: string) {
-  if (!isTauri()) return
-  toolBusyId.value = id
-  toolMessage.value = ''
-  toolError.value = false
-  try {
-    const result = await invoke<{ status: 'downloaded' | 'updated' | 'up-to-date'; version: string }>('check_or_update_tool', { id })
-    if (result.status === 'up-to-date') toolMessage.value = `${tools.find((tool) => tool.id === id)?.name} is up to date (${result.version}).`
-    else if (result.status === 'updated') toolMessage.value = `Updated ${tools.find((tool) => tool.id === id)?.name} to ${result.version}.`
-    else toolMessage.value = `Downloaded ${tools.find((tool) => tool.id === id)?.name} ${result.version}.`
-    await loadTools()
-  } catch (error) {
-    toolError.value = true
-    toolMessage.value = error instanceof Error ? error.message : 'Could not download the tool.'
-  } finally {
-    toolBusyId.value = ''
   }
 }
 
@@ -152,24 +119,7 @@ async function saveRepositoryUrl() {
         <div class="repo-control"><input id="firmware-repository-url" v-model="repositoryUrlDraft" type="url" :placeholder="DEFAULT_FIRMWARE_REPOSITORY_URL" :disabled="!settingsLoaded" :aria-invalid="!repositoryUrlIsValid(repositoryUrlDraft)" /><button class="outline-button" type="submit" :disabled="!settingsLoaded || !repositoryUrlIsValid(repositoryUrlDraft)">SAVE URL</button></div>
         <p class="settings-feedback" :class="{ 'is-error': settingsError }" aria-live="polite">{{ settingsMessage }}</p>
       </form>
-      <section class="settings-group extra-downloads">
-        <h2>EXTRA DOWNLOADS</h2>
-        <p class="repo-description">Optional and required utilities for working with firmware. Downloads are kept in the app's tools folder.</p>
-        <ToolDownloadCard
-          v-for="tool in tools"
-          :key="tool.id"
-          :name="tool.name"
-          :description="tool.description"
-          :repository="tool.repository"
-          :installed="toolStatuses[tool.id]?.installed ?? false"
-          :version="toolStatuses[tool.id]?.version"
-          :busy="toolBusyId === tool.id"
-          :disabled="!isTauri()"
-          @action="runToolAction(tool.id)"
-        />
-        <p v-if="!isTauri()" class="settings-feedback">Tool downloads are available in the desktop app.</p>
-        <p v-if="toolMessage" class="settings-feedback" :class="{ 'is-error': toolError }" role="status">{{ toolMessage }}</p>
-      </section>
+      <ToolDownloadsSection />
     </div>
   </section>
 </template>

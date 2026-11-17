@@ -4,6 +4,7 @@ withDefaults(defineProps<{
   message?: string
   connection?: string
   hint?: string
+  messageClass?: string
 }>(), {
   title: "NO UNIT",
   message: "WAITING FOR DOWNLOAD MODE",
@@ -21,7 +22,7 @@ withDefaults(defineProps<{
       <div class="lcd-content">
         <slot>
           <h2>{{ title }}</h2>
-          <p class="lcd-message">{{ message }}</p>
+          <p class="lcd-message" :class="messageClass" aria-live="polite">{{ message }}</p>
           <p class="lcd-connection">{{ connection }}</p>
         </slot>
       </div>

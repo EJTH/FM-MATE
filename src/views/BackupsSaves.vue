@@ -2,8 +2,8 @@
 import { computed, onActivated, ref, watch } from 'vue'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import type { InstalledSave } from '../types/saves'
-import type { InstalledFirmware } from '../types/firmware'
 import SavesTable from '../components/SavesTable.vue'
+import type { MFlasherRequestPayload } from '../types/flasher'
 
 interface SaveFilter {
   firmwareId: string
@@ -11,19 +11,15 @@ interface SaveFilter {
 }
 
 const props = defineProps<{ initialFilter?: SaveFilter | null }>()
+const emit = defineEmits<{ openFlasher: [request: MFlasherRequestPayload] }>()
 
 const saves = ref<InstalledSave[]>([])
 const loading = ref(true)
 const loadError = ref(false)
+const loadErrorMessage = ref('')
 const actionMessage = ref('')
 const selectedFirmwareId = ref('')
 const selectedVersion = ref('')
-const installedFirmwares = ref<InstalledFirmware[]>([])
-const deviceName = ref('')
-const deviceOutput = ref('')
-const scanBusy = ref(false)
-const backupBusy = ref(false)
-const backupTarget = ref('')
 const sortedSaves = computed(() => [...saves.value].sort((a, b) => b.modifiedAt - a.modifiedAt))
 const firmwareOptions = computed(() => [...new Map(saves.value.map((save) => [save.firmwareId, save.firmwareName])).entries()]
   .map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)))
@@ -34,13 +30,6 @@ const filteredSaves = computed(() => sortedSaves.value.filter((save) =>
   (!selectedFirmwareId.value || save.firmwareId === selectedFirmwareId.value)
   && (!selectedVersion.value || save.version === selectedVersion.value),
 ))
-const backupOptions = computed(() => installedFirmwares.value.flatMap((firmware) => firmware.installedVersions.map((version) => ({
-  key: `${firmware.id}::${version.version}`,
-  firmwareId: firmware.id,
-  firmwareName: firmware.name,
-  version: version.version,
-}))))
-
 watch(() => props.initialFilter, (filter) => {
   if (!filter) return
   selectedFirmwareId.value = filter.firmwareId
@@ -50,11 +39,13 @@ watch(() => props.initialFilter, (filter) => {
 async function loadSaves() {
   loading.value = true
   loadError.value = false
+  loadErrorMessage.value = ''
   try {
     saves.value = isTauri() ? await invoke<InstalledSave[]>('scan_installed_saves') : []
-    installedFirmwares.value = isTauri() ? await invoke<InstalledFirmware[]>('scan_installed_firmwares') : []
-  } catch {
+  } catch (error) {
+    saves.value = []
     loadError.value = true
+    loadErrorMessage.value = error instanceof Error ? error.message : String(error)
   } finally {
     loading.value = false
   }
@@ -77,6 +68,38 @@ async function deleteSave(save: InstalledSave) {
   }
 }
 
+async function emulateSave(save: InstalledSave) {
+  actionMessage.value = ''
+  try {
+    await invoke('open_save_in_emulator', {
+      firmwareId: save.firmwareId,
+      version: save.version,
+      relativePath: save.relativePath,
+    })
+    actionMessage.value = `Opened ${save.fileName} in FM1-Emu.`
+  } catch (error) {
+    actionMessage.value = error instanceof Error ? error.message : String(error)
+  }
+}
+
+async function openSaveFolder(save: InstalledSave) {
+  actionMessage.value = ''
+  try {
+    await invoke('open_installed_save_folder', {
+      firmwareId: save.firmwareId,
+      version: save.version,
+      relativePath: save.relativePath,
+    })
+  } catch (error) {
+    actionMessage.value = error instanceof Error ? error.message : 'Could not open the save folder.'
+  }
+}
+
+function flashSave(save: InstalledSave) {
+  actionMessage.value = ''
+  emit('openFlasher', { type: 'flash-save', save })
+}
+
 async function openFirmwareFolder() {
   if (!isTauri()) {
     actionMessage.value = 'Opening the firmware folder is available in the desktop app.'
@@ -89,52 +112,9 @@ async function openFirmwareFolder() {
   }
 }
 
-function guessFirmware(name: string) {
-  const normalized = name.toLocaleLowerCase().replace(/\s*\([^)]*\).*$/, '').replace(/\s+(fm-1|smk-37).*$/, '').trim()
-  return installedFirmwares.value
-    .filter((firmware) => normalized.includes(firmware.name.toLocaleLowerCase()) || firmware.name.toLocaleLowerCase().includes(normalized))
-    .sort((a, b) => b.name.length - a.name.length)[0]
-}
-
-async function findDevice() {
+function saveDeviceBackup() {
   actionMessage.value = ''
-  scanBusy.value = true
-  deviceName.value = ''
-  deviceOutput.value = ''
-  try {
-    if (!isTauri()) throw new Error('M-Flasher device detection is available in the desktop app.')
-    const found = await invoke<{ output: string; deviceFound: boolean; deviceName: string | null }>('m_flasher_find')
-    deviceOutput.value = found.output
-    if (!found.deviceFound || !found.deviceName) throw new Error(found.output || 'No device found.')
-    deviceName.value = found.deviceName
-    const firmware = guessFirmware(found.deviceName)
-    if (firmware) {
-      const version = firmware.installedVersions.find((item) => item.version === firmware.currentVersion) ?? firmware.installedVersions[0]
-      if (version) backupTarget.value = `${firmware.id}::${version.version}`
-    } else {
-      backupTarget.value = ''
-    }
-  } catch (error) {
-    actionMessage.value = error instanceof Error ? error.message : String(error)
-  } finally {
-    scanBusy.value = false
-  }
-}
-
-async function saveDeviceBackup() {
-  const [firmwareId, version] = backupTarget.value.split('::')
-  if (!firmwareId || !version) return
-  backupBusy.value = true
-  actionMessage.value = ''
-  try {
-    const result = await invoke<string>('m_flasher_backup', { firmwareId, version })
-    await loadSaves()
-    actionMessage.value = result || 'Device backup saved.'
-  } catch (error) {
-    actionMessage.value = error instanceof Error ? error.message : String(error)
-  } finally {
-    backupBusy.value = false
-  }
+  emit('openFlasher', { type: 'backup' })
 }
 </script>
 
@@ -147,20 +127,9 @@ async function saveDeviceBackup() {
     <div class="device-backup-panel">
       <div class="device-backup-heading">
         <div><p class="eyebrow">M-FLASHER</p><h2>Save device backup</h2></div>
-        <button class="action-button" type="button" :disabled="scanBusy" @click="findDevice">{{ scanBusy ? 'CHECKING DEVICE…' : 'FIND DEVICE' }}</button>
+        <button class="action-button" type="button" @click="saveDeviceBackup">PERFORM BACKUP</button>
       </div>
-      <p v-if="deviceName" class="device-found">DEVICE FOUND: {{ deviceName }}</p>
-      <div v-if="deviceName" class="backup-target-row">
-        <label>STORE SAVE WITH
-          <select v-model="backupTarget" :disabled="backupBusy || !backupOptions.length">
-            <option value="" disabled>Select firmware and version</option>
-            <option v-for="option in backupOptions" :key="option.key" :value="option.key">{{ option.firmwareName }} — {{ option.version }}</option>
-          </select>
-        </label>
-        <button class="action-button" type="button" :disabled="backupBusy || !backupTarget" @click="saveDeviceBackup">{{ backupBusy ? 'SAVING…' : 'SAVE BACKUP' }}</button>
-      </div>
-      <details v-if="deviceOutput" class="device-output"><summary>M-FLASHER OUTPUT</summary><pre>{{ deviceOutput }}</pre></details>
-      <p class="device-backup-note">M-Flasher backups are listed here as saves and stored in the selected firmware version’s saves folder.</p>
+      <p class="device-backup-note">Continue in M-Flasher to select the firmware version and confirm the backup.</p>
     </div>
     <div class="saves-filters">
       <label>FIRMWARE
@@ -181,8 +150,12 @@ async function saveDeviceBackup() {
       :saves="filteredSaves"
       :loading="loading"
       :load-error="loadError"
+      :load-error-message="loadErrorMessage"
       :empty-message="selectedFirmwareId || selectedVersion ? 'No saves match these filters.' : 'Saves stored with downloaded firmware versions will appear here.'"
       @delete="deleteSave"
+      @emulate="emulateSave"
+      @open-folder="openSaveFolder"
+      @flash="flashSave"
     />
   </section>
 </template>

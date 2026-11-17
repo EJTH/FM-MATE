@@ -6,11 +6,18 @@ import { openUrl } from '@tauri-apps/plugin-opener'
 import FirmwareThumbnail from '../components/FirmwareThumbnail.vue'
 import FirmwareDetails from '../components/FirmwareDetails.vue'
 import InstallDropdown from '../components/InstallDropdown.vue'
+import ConfirmationDialog from '../components/ConfirmationDialog.vue'
 import type { InstalledFirmware, InstalledVersion } from '../types/firmware'
 import { loadFirmwareCatalog } from '../services/firmwareCatalog'
 import type { FirmwareRecord } from '../services/firmwareCatalog'
+import type { MFlasherRequestPayload } from '../types/flasher'
 
-const emit = defineEmits<{ openSaves: [filter: { firmwareId: string; version: string }] }>()
+const props = defineProps<{ openFirmwareId?: string | null }>()
+const emit = defineEmits<{
+  openSaves: [filter: { firmwareId: string; version: string }]
+  openFlasher: [request: MFlasherRequestPayload]
+  detailsOpened: [firmwareId: string]
+}>()
 
 interface ScannedFirmware {
   id: string
@@ -45,6 +52,7 @@ const folderError = ref('')
 const openingFolder = ref(false)
 const selectedFirmware = ref<InstalledFirmware | null>(null)
 const actionMessage = ref('')
+const pendingVersionDelete = ref<{ firmware: InstalledFirmware; version: InstalledVersion } | null>(null)
 
 const firmwares = computed<InstalledFirmware[]>(() => {
   const grouped = new Map<string, InstalledFirmware>()
@@ -113,7 +121,17 @@ async function loadDownloads() {
   }
 }
 
-onActivated(loadDownloads)
+async function activateDownloads() {
+  await loadDownloads()
+  const requestedId = props.openFirmwareId
+  if (!requestedId) return
+  const match = firmwares.value.find((firmware) => firmware.id === requestedId)
+  if (match) selectedFirmware.value = match
+  else actionMessage.value = 'That firmware is no longer installed.'
+  emit('detailsOpened', requestedId)
+}
+
+onActivated(activateDownloads)
 
 async function loadCatalog() {
   try {
@@ -287,24 +305,41 @@ async function openReleaseNotes(firmware: InstalledFirmware) {
   }
 }
 
-async function deleteVersion(firmware: InstalledFirmware, version: InstalledVersion) {
-  const confirmed = window.confirm(
-    `Delete ${firmware.name} ${version.version}? This also deletes its saves and downloaded editor.`,
-  )
-  if (!confirmed) return
+function deleteVersion(firmware: InstalledFirmware, version: InstalledVersion) {
+  pendingVersionDelete.value = { firmware, version }
+}
+
+async function confirmDeleteVersion() {
+  const pending = pendingVersionDelete.value
+  if (!pending) return
+  pendingVersionDelete.value = null
   try {
-    await invoke('delete_firmware_version', { id: firmware.id, version: version.version })
+    await invoke('delete_firmware_version', { id: pending.firmware.id, version: pending.version.version })
     await loadDownloads()
-    selectedFirmware.value = firmwares.value.find((item) => item.id === firmware.id) ?? null
-    actionMessage.value = `Deleted ${firmware.name} ${version.version}.`
+    selectedFirmware.value = firmwares.value.find((item) => item.id === pending.firmware.id) ?? null
+    actionMessage.value = `Deleted ${pending.firmware.name} ${pending.version.version}.`
   } catch (error) {
     actionMessage.value = error instanceof Error ? error.message : 'Could not delete this firmware version.'
   }
 }
 
-function installFirmware(firmware: InstalledFirmware, version: string) {
-  actionMessage.value = `Connect an FM-1 or SMK-37 to install ${firmware.name} ${version}.`
-  if (selectedFirmware.value?.id === firmware.id) updateMessage.value = actionMessage.value
+async function installFirmware(firmware: InstalledFirmware, version: string) {
+  let automaticallyBackup = true
+  try {
+    const preferences = isTauri()
+      ? await store.get<{ automaticallyBackupBeforeSwitching?: boolean }>('preferences')
+      : JSON.parse(localStorage.getItem('fm-mate.preferences') ?? '{}') as { automaticallyBackupBeforeSwitching?: boolean }
+    automaticallyBackup = preferences?.automaticallyBackupBeforeSwitching ?? true
+  } catch {
+    // Keep the application's default preference if settings could not be read.
+  }
+  emit('openFlasher', {
+    type: 'switch-firmware',
+    firmwareId: firmware.id,
+    firmwareName: firmware.name,
+    version,
+    automaticallyBackup,
+  })
 }
 
 </script>
@@ -359,6 +394,16 @@ function installFirmware(firmware: InstalledFirmware, version: string) {
       @install-version="installFirmware(selectedFirmware, $event)"
       @download-update="downloadUpdate(selectedFirmware)"
       @open-release="openReleaseNotes(selectedFirmware)"
+    />
+    <ConfirmationDialog
+      v-if="pendingVersionDelete"
+      title="DELETE FIRMWARE VERSION?"
+      :message="`Delete ${pendingVersionDelete.firmware.name} ${pendingVersionDelete.version.version}? This also deletes its saves and downloaded editor.`"
+      confirm-label="DELETE VERSION"
+      confirm-variant="danger"
+      @confirm="confirmDeleteVersion"
+      @secondary="pendingVersionDelete = null"
+      @cancel="pendingVersionDelete = null"
     />
   </section>
 </template>

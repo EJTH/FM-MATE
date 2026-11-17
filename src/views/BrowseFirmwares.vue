@@ -2,9 +2,12 @@
 import { computed, onDeactivated, onActivated, ref, watch } from 'vue'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { LazyStore } from '@tauri-apps/plugin-store'
-import FirmwareThumbnail from '../components/FirmwareThumbnail.vue'
+import DetailedResultCard from '../components/DetailedResultCard.vue'
+import FirmwareResultCard from '../components/FirmwareResultCard.vue'
+import ConfirmationDialog from '../components/ConfirmationDialog.vue'
 import { loadFirmwareCatalog } from '../services/firmwareCatalog'
-import type { FirmwareRecord } from '../services/firmwareCatalog'
+import type { FirmwareCatalogLicense, FirmwareRecord } from '../services/firmwareCatalog'
+import type { MFlasherRequestPayload } from '../types/flasher'
 
 type DeviceFilter = 'all' | 'fm1' | 'smk37'
 interface DownloadedFirmware {
@@ -21,6 +24,7 @@ const store = new LazyStore('settings.json', { autoSave: true })
 const firmwares = ref<FirmwareRecord[]>([])
 const updated = ref('')
 const repositoryUrl = ref('')
+const repositoryLicense = ref<FirmwareCatalogLicense | null | undefined>()
 const search = ref('')
 const deviceFilter = ref<DeviceFilter>('all')
 const selectedKinds = ref<string[]>([])
@@ -28,12 +32,30 @@ const sortBy = ref<'name' | 'kind' | 'added' | 'date' | 'stars' | 'installs'>('i
 const sortDescending = ref(true)
 const loading = ref(false)
 const errorMessage = ref('')
+const resultView = ref<'detailed' | 'grid'>('detailed')
+const selectedResult = ref<FirmwareRecord | null>(null)
+const tryingId = ref('')
+const firmwareKeepPrompt = ref<FirmwareRecord | null>(null)
 const controller = ref<AbortController | null>(null)
-const emit = defineEmits<{ 'open-settings': [] }>()
+const emit = defineEmits<{
+  'open-settings': []
+  'open-installed-firmware': [firmwareId: string]
+  openFlasher: [request: MFlasherRequestPayload]
+}>()
 const downloadedFirmwares = ref<DownloadedFirmware[]>([])
 const downloadingId = ref('')
 const downloadMessage = ref('')
 const downloadIsError = ref(false)
+const repositoryLicenseUrl = computed(() => {
+  const value = repositoryLicense.value?.url
+  if (!value) return ''
+  try {
+    const url = new URL(value)
+    return ['https:', 'http:'].includes(url.protocol) ? url.toString() : ''
+  } catch {
+    return ''
+  }
+})
 
 watch(sortBy, (field) => {
   sortDescending.value = ['added', 'date', 'stars', 'installs'].includes(field)
@@ -55,6 +77,7 @@ async function loadRepository() {
     selectedKinds.value = availableKinds.value.filter((kind) => !previousKinds.has(kind) || previousSelection.has(kind))
     updated.value = catalog.updated
     repositoryUrl.value = catalog.repositoryUrl
+    repositoryLicense.value = catalog.license
     if (catalog.stale) errorMessage.value = 'Could not refresh the repository; showing the cached firmware list.'
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') return
@@ -87,8 +110,16 @@ function hasDownloaded(firmware: FirmwareRecord) {
   return downloadedFirmwares.value.some((download) => download.id === firmware.id && download.version === (firmware.version ?? ''))
 }
 
-async function downloadFirmware(firmware: FirmwareRecord) {
-  if (!firmware.pkg || downloadingId.value) return
+function installedVersionsFor(firmware: FirmwareRecord) {
+  return [...new Set(downloadedFirmwares.value
+    .filter((download) => download.id === firmware.id)
+    .map((download) => download.version)
+    .filter(Boolean))]
+    .sort((a, b) => b.localeCompare(a, undefined, { numeric: true, sensitivity: 'base' }))
+}
+
+async function downloadFirmware(firmware: FirmwareRecord, installAfterDownload = false): Promise<boolean> {
+  if (!firmware.pkg || downloadingId.value) return false
   downloadingId.value = firmware.id
   downloadMessage.value = ''
   downloadIsError.value = false
@@ -141,12 +172,111 @@ async function downloadFirmware(firmware: FirmwareRecord) {
     }
     downloadedFirmwares.value = entries
     downloadMessage.value = `${firmware.name} downloaded.`
+    if (installAfterDownload) await beginFirmwareInstall(firmware)
+    return true
   } catch (error) {
     downloadIsError.value = true
     downloadMessage.value = error instanceof Error ? error.message : 'Firmware download failed.'
+    return false
   } finally {
     downloadingId.value = ''
   }
+}
+
+async function beginFirmwareInstall(firmware: FirmwareRecord) {
+  let automaticallyBackup = true
+  try {
+    const preferences = isTauri()
+      ? await store.get<{ automaticallyBackupBeforeSwitching?: boolean }>('preferences')
+      : JSON.parse(localStorage.getItem('fm-mate.preferences') ?? '{}') as { automaticallyBackupBeforeSwitching?: boolean }
+    automaticallyBackup = preferences?.automaticallyBackupBeforeSwitching ?? true
+  } catch {
+    // Use the enabled default if saved settings are unavailable.
+  }
+  emit('openFlasher', {
+    type: 'switch-firmware',
+    firmwareId: firmware.id,
+    firmwareName: firmware.name,
+    version: firmware.version ?? 'unknown',
+    automaticallyBackup,
+  })
+}
+
+async function installFromResult(firmware: FirmwareRecord) {
+  if (!isTauri()) {
+    downloadIsError.value = true
+    downloadMessage.value = 'Installing firmware is available in the FM-MATE desktop app.'
+    return
+  }
+  if (hasDownloaded(firmware)) {
+    await beginFirmwareInstall(firmware)
+  } else {
+    await downloadFirmware(firmware, true)
+  }
+}
+
+async function tryFirmware(firmware: FirmwareRecord) {
+  if (!isTauri()) {
+    downloadIsError.value = true
+    downloadMessage.value = 'Trying firmware in FM1-Emu is available in the desktop app.'
+    return
+  }
+  if (tryingId.value || downloadingId.value) return
+  tryingId.value = firmware.id
+  downloadMessage.value = ''
+  downloadIsError.value = false
+  try {
+    if (!hasDownloaded(firmware) && !await downloadFirmware(firmware)) return
+    await invoke('try_firmware_in_emulator', {
+      id: firmware.id,
+      version: firmware.version ?? 'unknown',
+    })
+    firmwareKeepPrompt.value = firmware
+  } catch (error) {
+    downloadIsError.value = true
+    downloadMessage.value = error instanceof Error ? error.message : 'Could not open firmware in FM1-Emu.'
+  } finally {
+    tryingId.value = ''
+  }
+}
+
+function keepTriedFirmware() {
+  if (firmwareKeepPrompt.value) downloadMessage.value = `Kept ${firmwareKeepPrompt.value.name} ${firmwareKeepPrompt.value.version ?? ''}.`.trim()
+  firmwareKeepPrompt.value = null
+}
+
+async function discardTriedFirmware() {
+  const firmware = firmwareKeepPrompt.value
+  if (!firmware) return
+  firmwareKeepPrompt.value = null
+  try {
+    await invoke('delete_firmware_version', { id: firmware.id, version: firmware.version ?? 'unknown' })
+    downloadedFirmwares.value = downloadedFirmwares.value.filter((item) => item.id !== firmware.id || item.version !== (firmware.version ?? ''))
+    if (isTauri()) {
+      await store.set('downloadedFirmwares', downloadedFirmwares.value)
+      await store.save()
+    }
+    downloadMessage.value = `Removed ${firmware.name} ${firmware.version ?? ''}.`.trim()
+    downloadIsError.value = false
+  } catch (error) {
+    downloadIsError.value = true
+    downloadMessage.value = error instanceof Error ? error.message : 'Could not remove the test firmware.'
+  }
+}
+
+async function openResultInfo(firmware: FirmwareRecord) {
+  await loadDownloadedFirmwares()
+  const installed = downloadedFirmwares.value.some((item) => item.id === firmware.id)
+  if (installed) {
+    selectedResult.value = null
+    emit('open-installed-firmware', firmware.id)
+  } else {
+    selectedResult.value = firmware
+  }
+}
+
+function installResultVersion(firmware: FirmwareRecord, version: string) {
+  void beginFirmwareInstall({ ...firmware, version })
 }
 
 function kindLabel(firmware: FirmwareRecord) {
@@ -154,6 +284,14 @@ function kindLabel(firmware: FirmwareRecord) {
 }
 
 const availableKinds = computed(() => [...new Set(firmwares.value.map(kindLabel))].sort((a, b) => a.localeCompare(b)))
+const kindCounts = computed(() => {
+  const counts = new Map<string, number>()
+  for (const firmware of firmwares.value) {
+    const kind = kindLabel(firmware)
+    counts.set(kind, (counts.get(kind) ?? 0) + 1)
+  }
+  return counts
+})
 
 const visibleFirmwares = computed(() => {
   const query = search.value.trim().toLocaleLowerCase()
@@ -195,35 +333,31 @@ const visibleFirmwares = computed(() => {
   })
 })
 
-function formatSize(size: unknown) {
-  if (typeof size !== 'number' || !Number.isFinite(size) || size <= 0) return ''
-  return size >= 1024 * 1024 ? `${(size / (1024 * 1024)).toFixed(1)} MiB` : `${Math.ceil(size / 1024)} KiB`
-}
-
-function starCount(firmware: FirmwareRecord) {
-  if (typeof firmware.stars === 'number' && Number.isFinite(firmware.stars)) return firmware.stars
-  return undefined
-}
 </script>
 
 <template>
   <section class="view-panel">
     <div class="view-heading">
       <div><p class="eyebrow">FIRMWARE LIBRARY</p><h1>Browse Firmwares</h1></div>
-      <span class="connection-pill"><i /> DEVICE NOT CONNECTED</span>
     </div>
 
     <div class="toolbar">
       <label class="search-field"><span aria-hidden="true">⌕</span><input v-model="search" type="search" placeholder="Search name, author, device" aria-label="Search firmware" /></label>
       <select v-model="deviceFilter" aria-label="Filter by device"><option value="all">All devices</option><option value="fm1">FM-1</option><option value="smk37">SMK-37</option></select>
+      <div class="result-view-toggle" role="group" aria-label="Results layout">
+        <button type="button" :aria-pressed="resultView === 'detailed'" :class="{ 'is-active': resultView === 'detailed' }" @click="resultView = 'detailed'">DETAILS</button>
+        <button type="button" :aria-pressed="resultView === 'grid'" :class="{ 'is-active': resultView === 'grid' }" @click="resultView = 'grid'">GRID</button>
+      </div>
       <button class="outline-button" type="button" :disabled="loading" @click="loadRepository">{{ loading ? 'LOADING…' : 'REFRESH CATALOG' }}</button>
     </div>
 
     <div class="browse-options">
       <fieldset class="kind-filters" :disabled="!availableKinds.length">
         <legend>FILTER BY KIND</legend>
-        <label v-for="kind in availableKinds" :key="kind"><input v-model="selectedKinds" type="checkbox" :value="kind" />{{ kind }}</label>
-        <span v-if="!availableKinds.length" class="no-kinds">Kinds appear when a catalog is loaded.</span>
+        <div>
+          <label v-for="kind in availableKinds" :key="kind"><input v-model="selectedKinds" type="checkbox" :value="kind" />{{ kind }} <span class="kind-count">({{ kindCounts.get(kind) ?? 0 }})</span></label>
+          <span v-if="!availableKinds.length" class="no-kinds">Kinds appear when a catalog is loaded.</span>
+        </div>
       </fieldset>
       <div class="sort-controls">
         <label class="sort-control">SORT BY
@@ -251,32 +385,48 @@ function starCount(firmware: FirmwareRecord) {
     <div v-else-if="errorMessage" class="catalog-state catalog-state--error"><span class="empty-mark">!</span><h2>Could not load catalog</h2><p>{{ errorMessage }}</p><button class="outline-button" type="button" @click="loadRepository">TRY AGAIN</button></div>
     <div v-else-if="!repositoryUrl" class="catalog-state"><span class="empty-mark">⌁</span><h2>Set a firmware repository</h2><p>Add the manifest URL in Settings to browse releases.</p><button class="outline-button" type="button" @click="emit('open-settings')">OPEN SETTINGS</button></div>
     <div v-else-if="visibleFirmwares.length === 0" class="catalog-state"><span class="empty-mark">⌕</span><h2>{{ firmwares.length ? 'No matching firmware' : 'No firmware found' }}</h2><p>{{ firmwares.length ? 'Try another search or device filter.' : 'The repository has no valid firmware entries.' }}</p></div>
-    <div v-else class="firmware-list" aria-label="Firmware releases">
-      <article v-for="firmware in visibleFirmwares" :key="firmware.id" class="firmware-card">
-        <FirmwareThumbnail :id="firmware.id" :card="firmware.card" :alt="`${firmware.name} thumbnail`" />
-        <div class="firmware-card__main">
-          <div class="firmware-card__title"><div><h2>{{ firmware.name }}</h2><p>{{ firmware.author || firmware.repo || firmware.id }}</p></div><div class="firmware-engagement"><span v-if="starCount(firmware) !== undefined" class="firmware-stars">★ {{ starCount(firmware) }}</span><span v-if="typeof firmware.installs === 'number'" class="firmware-installs">{{ firmware.installs }} installs</span></div></div>
-          <p v-if="firmware.what" class="firmware-description">{{ firmware.what }}</p>
-          <div class="firmware-tags"><span v-if="firmware.product">{{ firmware.product }}</span><span v-else-if="firmware.ident">{{ firmware.ident }}</span><span>{{ kindLabel(firmware) }}</span><span v-if="firmware.lic">{{ firmware.lic }}</span><span v-if="firmware.size">{{ formatSize(firmware.size) }}</span><span v-if="firmware.beta" class="beta-tag">BETA</span></div>
-        </div>
-        <div class="firmware-card__actions">
-          <span class="firmware-updated">LAST UPDATED {{ firmware.date || '—' }}</span>
-          <span v-if="firmware.version" class="version-badge">v{{ firmware.version }}</span>
-          <div class="firmware-card__links"><a v-if="firmware.release" :href="firmware.release" target="_blank" rel="noreferrer">RELEASE ↗</a><a v-if="firmware.site" :href="firmware.site" target="_blank" rel="noreferrer">PROJECT ↗</a></div>
-          <button class="outline-button download-button" type="button" :disabled="!firmware.pkg || !!downloadingId || hasDownloaded(firmware)" @click="downloadFirmware(firmware)">{{ downloadingId === firmware.id ? 'DOWNLOADING…' : hasDownloaded(firmware) ? 'DOWNLOADED' : 'DOWNLOAD' }}</button>
-        </div>
-      </article>
+    <div v-else-if="resultView === 'detailed'" class="firmware-list" aria-label="Firmware releases">
+      <DetailedResultCard v-for="firmware in visibleFirmwares" :key="firmware.id" :firmware="firmware" :downloading="downloadingId === firmware.id" :downloaded="installedVersionsFor(firmware).length > 0" :installed-versions="installedVersionsFor(firmware)" :trying="tryingId === firmware.id" @download="downloadFirmware(firmware)" @try-firmware="tryFirmware(firmware)" @info="openResultInfo(firmware)" @install-version="installResultVersion(firmware, $event)" />
     </div>
-    <p class="catalog-attribution">Huge thanks to <a href="https://thefirmwarehub.com/" target="_blank" rel="noreferrer">thefirmwarehub.com</a> for providing the data used in the firmware browser!</p>
+    <div v-else class="firmware-grid" aria-label="Firmware releases">
+      <FirmwareResultCard
+        v-for="firmware in visibleFirmwares"
+        :key="firmware.id"
+        :firmware="firmware"
+        :busy="downloadingId === firmware.id"
+        :can-install="!downloadingId && (hasDownloaded(firmware) || !!firmware.pkg)"
+        @info="openResultInfo(firmware)"
+        @install="installFromResult(firmware)"
+      />
+    </div>
+    <DetailedResultCard v-if="selectedResult" :firmware="selectedResult" overlay :downloading="downloadingId === selectedResult.id" :downloaded="installedVersionsFor(selectedResult).length > 0" :installed-versions="installedVersionsFor(selectedResult)" :trying="tryingId === selectedResult.id" @download="downloadFirmware(selectedResult)" @try-firmware="tryFirmware(selectedResult)" @info="openResultInfo(selectedResult)" @install-version="installResultVersion(selectedResult, $event)" @close="selectedResult = null" />
+    <ConfirmationDialog
+      v-if="firmwareKeepPrompt"
+      title="KEEP TEST FIRMWARE?"
+      :message="`FM1-Emu has closed. Do you wish to keep ${firmwareKeepPrompt.name} ${firmwareKeepPrompt.version ?? ''}? Deleting it also removes its saves.`"
+      confirm-label="KEEP FIRMWARE"
+      cancel-label="DELETE TEST FIRMWARE"
+      cancel-variant="danger"
+      @confirm="keepTriedFirmware"
+      @secondary="discardTriedFirmware"
+      @cancel="keepTriedFirmware"
+    />
+    <p class="catalog-attribution">
+      <a v-if="repositoryLicense?.attribution && repositoryLicenseUrl" :href="repositoryLicenseUrl" target="_blank" rel="noreferrer">{{ repositoryLicense.attribution }}</a>
+      <span v-else-if="repositoryLicense?.attribution">{{ repositoryLicense.attribution }}</span>
+      <template v-else>Huge thanks to <a href="https://thefirmwarehub.com/" target="_blank" rel="noreferrer">thefirmwarehub.com</a> for providing the data used in the firmware browser!</template>
+    </p>
   </section>
 </template>
 
 <style>
 .catalog-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 18px; min-height: 24px; margin: -7px 0 8px; color: #8f8580; font: 11px 'Share Tech Mono', monospace; letter-spacing: .04em; }
-.browse-options { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin: 0 0 14px; padding: 10px 12px; background: rgb(40 37 36 / 55%); border: 1px solid #48413f; }
-.kind-filters { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 8px 18px; margin: 0; padding: 0; border: 0; }
-.kind-filters legend { float: left; margin-right: 5px; color: #9b8aa8; font-size: 10px; font-weight: 700; letter-spacing: .13em; }
-.kind-filters label { display: inline-flex; align-items: center; gap: 6px; color: #d2c9bd; font-size: 13px; text-transform: capitalize; }
+.browse-options { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 20px; margin: 0 0 14px; padding: 10px 12px; background: rgb(40 37 36 / 55%); border: 1px solid #48413f; }
+.kind-filters { min-width: 0; margin: 0; padding: 0; border: 0; }
+.kind-filters > div { display: grid; min-width: 0; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); align-items: center; gap: 8px 0px; }
+.kind-filters legend { margin: 0 0 7px; color: #9b8aa8; font-size: 10px; font-weight: 700; letter-spacing: .13em; }
+.kind-filters label { width: 100%; min-width: 0; display: inline-flex; align-items: center; gap: 6px; color: #d2c9bd; font-size: 13px; text-transform: capitalize; white-space: nowrap; }
+.kind-filters .kind-count { color: #9b8aa8; }
 .kind-filters input { width: 14px; height: 14px; margin: 0; accent-color: #59d3b7; }
 .kind-filters:disabled { opacity: .55; }
 .no-kinds { color: #8f8580; font: 11px 'Share Tech Mono', monospace; }
@@ -295,28 +445,12 @@ function starCount(firmware: FirmwareRecord) {
 .catalog-state p { max-width: 62ch; margin: 0 0 18px; color: #a49b97; font: 13px 'Share Tech Mono', monospace; overflow-wrap: anywhere; }
 .catalog-state--error .empty-mark { color: #ed9a7b; border-color: #805b4f; }
 .firmware-list { display: grid; gap: 10px; }
-.firmware-card { display: grid; grid-template-columns: 156px minmax(0, 1fr) minmax(145px, auto); align-items: stretch; gap: 18px; padding: 17px 18px; background: rgb(40 37 36 / 78%); border: 1px solid #48413f; }
-.firmware-card__main { min-width: 0; }
-.firmware-card__title { display: flex; align-items: start; justify-content: space-between; gap: 14px; }
-.firmware-card__title h2 { margin: 0; color: #e8e1d7; font-size: 20px; font-weight: 600; }
-.firmware-card__title p { margin: 3px 0 0; color: #b49bdc; font: 12px 'Share Tech Mono', monospace; }
-.version-badge { flex: 0 0 auto; padding: 3px 7px; color: #77dfc0; background: #1f3531; border: 1px solid #3c766a; font: 12px 'Share Tech Mono', monospace; }
-.firmware-description { max-width: 95ch; margin: 12px 0; color: #b9b0a7; font: 13px/1.55 'Share Tech Mono', monospace; }
-.firmware-tags { display: flex; flex-wrap: wrap; gap: 6px; }
-.firmware-tags span { padding: 3px 7px; color: #c4b9cc; background: #302d30; border: 1px solid #514754; font: 10px 'Share Tech Mono', monospace; }
-.firmware-stars { flex: 0 0 auto; padding: 4px 8px; color: #f1c66e; background: #393021; border: 1px solid #74603b; font: 600 13px 'Share Tech Mono', monospace; white-space: nowrap; }
-.firmware-engagement { display: flex; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
-.firmware-installs { padding: 4px 8px; color: #b7c6d8; background: #29313a; border: 1px solid #4b5c6e; font: 12px 'Share Tech Mono', monospace; white-space: nowrap; }
-.firmware-tags .beta-tag { color: #f1b36d; border-color: #795b38; }
-.firmware-card__actions { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
-.firmware-updated { color: #a49b97; font: 10px 'Share Tech Mono', monospace; letter-spacing: .06em; white-space: nowrap; }
-.firmware-card__links { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 9px 12px; padding-top: 4px; }
-.firmware-card__links a { color: #bda5df; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-decoration: none; white-space: nowrap; }
-.firmware-card__links a:hover { color: #e1cff8; }
-.firmware-card__actions .download-button { margin-top: auto; }
-.download-button:disabled { opacity: .55; cursor: not-allowed; }
+.firmware-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); align-items: stretch; gap: 14px; }
+.result-view-toggle { display: inline-flex; flex: 0 0 auto; padding: 3px; background: #211f1e; border: 1px solid #4a4442; }
+.result-view-toggle button { min-height: 32px; padding: 0 10px; color: #aaa09a; background: transparent; border: 0; font-size: 11px; font-weight: 700; letter-spacing: .08em; cursor: pointer; }
+.result-view-toggle button.is-active { color: #f0eae2; background: linear-gradient(135deg, #21413e, #1b3331); box-shadow: inset 0 0 0 1px #3c766a; }
+.result-view-toggle button:focus-visible { outline: 2px solid #65e1c1; outline-offset: 1px; }
 .download-feedback { margin: 0 0 12px; color: #72e7c3; font: 12px 'Share Tech Mono', monospace; }
 .download-feedback.is-error { color: #ed9a7b; }
-@media (max-width: 700px) { .firmware-card { grid-template-columns: 112px minmax(0, 1fr); gap: 12px; }.firmware-card .firmware-thumbnail { width: 112px; height: 112px; flex-basis: 112px; }.firmware-card__actions { grid-column: 2; align-items: flex-start; }.firmware-card__links { justify-content: flex-start; }.firmware-card__actions .download-button { margin-top: 0; } }
-@media (max-width: 600px) { .catalog-source { max-width: 100%; flex-basis: 100%; }.browse-options { align-items: stretch; flex-direction: column; gap: 12px; }.kind-filters legend { flex-basis: 100%; }.sort-controls { justify-content: flex-end; }.sort-control { justify-content: space-between; } }
+@media (max-width: 600px) { .catalog-source { max-width: 100%; flex-basis: 100%; }.browse-options { grid-template-columns: minmax(0, 1fr); gap: 12px; }.sort-controls { justify-content: flex-end; }.sort-control { justify-content: space-between; } }
 </style>

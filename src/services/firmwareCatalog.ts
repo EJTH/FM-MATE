@@ -31,14 +31,22 @@ export interface FirmwareRecord {
 export interface FirmwareCatalog {
   updated: string
   repositoryUrl: string
+  license?: FirmwareCatalogLicense | null
   firmwares: FirmwareRecord[]
   fetchedAt: number
   stale: boolean
 }
 
+export interface FirmwareCatalogLicense {
+  license?: string
+  url?: string
+  attribution?: string
+}
+
 interface FirmwareCatalogCache {
   updated?: string
   repositoryUrl?: string
+  license?: FirmwareCatalogLicense | null
   firmwares?: FirmwareRecord[]
   fetchedAt?: number
 }
@@ -84,6 +92,7 @@ function toCatalog(cache: FirmwareCatalogCache, repositoryUrl: string, stale: bo
   return {
     updated: typeof cache.updated === 'string' ? cache.updated : '',
     repositoryUrl,
+    license: cache.license,
     firmwares: cache.firmwares ?? [],
     fetchedAt: cache.fetchedAt ?? 0,
     stale,
@@ -99,21 +108,26 @@ export async function loadFirmwareCatalog(signal?: AbortSignal): Promise<Firmwar
     ? cache
     : null
 
-  if (matchingCache && typeof matchingCache.fetchedAt === 'number' && Date.now() - matchingCache.fetchedAt < CACHE_TTL_MS) {
+  if (matchingCache && Object.prototype.hasOwnProperty.call(matchingCache, 'license')
+    && typeof matchingCache.fetchedAt === 'number' && Date.now() - matchingCache.fetchedAt < CACHE_TTL_MS) {
     return toCatalog(matchingCache, repositoryUrl, false)
   }
 
   try {
     const response = await fetch(repositoryUrl, { signal, headers: { Accept: 'application/json' } })
     if (!response.ok) throw new Error(`Repository request failed (${response.status}).`)
-    const manifest = await response.json() as { updated?: unknown; firmwares?: unknown }
+    const manifest = await response.json() as { updated?: unknown; license?: unknown; firmwares?: unknown }
     if (!Array.isArray(manifest.firmwares)) throw new Error('The repository JSON must contain a firmwares array.')
     const firmwares = manifest.firmwares.filter((item): item is FirmwareRecord =>
       typeof item?.id === 'string' && typeof item?.name === 'string',
     )
+    const license = manifest.license && typeof manifest.license === 'object' && !Array.isArray(manifest.license)
+      ? Object.fromEntries(Object.entries(manifest.license).filter((entry): entry is [string, string] => typeof entry[1] === 'string')) as FirmwareCatalogLicense
+      : null
     const fresh: FirmwareCatalogCache = {
       updated: typeof manifest.updated === 'string' ? manifest.updated : '',
       repositoryUrl,
+      license,
       firmwares,
       fetchedAt: Date.now(),
     }
