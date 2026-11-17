@@ -1,16 +1,125 @@
 # FM-MATE
 
-FM-MATE is an app store like experience for managing your FM-1 firmwares. Download, flash, backup, save and switch effortlessly between firmwares - Offline!
+FM-MATE is a modern, user-friendly desktop application for managing FM-1 device firmwares with an intuitive app store-like experience. Download, flash, backup, and seamlessly switch between firmware versions—all offline!
 
-## Builds
+## 📹 Demo
 
-The Build workflow runs on pushes, pull requests, and manual dispatches. It uploads Windows x64 installers and a macOS Apple Silicon DMG as workflow artifacts. The builds are not code-signed or notarized.
+<video width="100%" controls style="border-radius: 8px; margin: 20px 0;">
+  <source src="docs/demovideo.mp4" type="video/mp4">
+  Your browser does not support the video tag.
+</video>
 
+## ✨ Features
 
-# Tauri + Vue + TypeScript
+- **📥 Download Firmwares**: Browse and download firmware versions for your FM-1 device directly within the app
+- **⚡ Flash Firmware**: Flash downloaded firmwares to your device with a single click
+- **💾 Backup & Save**: Create and manage backups of your device's current firmware and saves
+- **🔄 Switch Versions**: Easily switch between different firmware versions you've downloaded
+- **🎮 Try in Emulator**: Test firmware versions locally using FM1-Emu before installing them on your device
+- **🖥️ Emulator Support**: Open firmwares and saves directly in the emulator for safe experimentation
+- **📡 Offline Operation**: Manage your firmwares without requiring internet connectivity after initial downloads
+- **🎨 Intuitive UI**: Beautiful, modern interface designed for ease of use
+- **💻 Cross-Platform**: Available for Windows and macOS
 
-This template should help get you started developing with Vue 3 and TypeScript in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+## 🚀 Getting Started
 
-## Recommended IDE Setup
+### Prerequisites
 
-- [VS Code](https://code.visualstudio.com/) + [Vue - Official](https://marketplace.visualstudio.com/items?itemName=Vue.volar) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+- Node.js 20+ and npm
+- Rust (for building from source)
+- Tauri CLI
+
+### Installation
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/FM-MATE.git
+   cd FM-MATE
+   ```
+
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+3. Run the development server:
+   ```bash
+   npm run dev
+   ```
+
+4. Build the application:
+   ```bash
+   npm run build
+   ```
+
+### Download Binaries
+
+Pre-built binaries are available as artifacts from the [GitHub Actions workflows](../../actions). Visit the **Build** workflow to download the latest Windows MSI/NSIS installer or macOS DMG.
+
+## 📋 Project Structure
+
+```
+FM-MATE/
+├── src/                      # Frontend source code
+│   ├── components/           # Vue components
+│   ├── views/               # Page views
+│   ├── services/            # Business logic services
+│   ├── types/               # TypeScript type definitions
+│   ├── App.vue              # Root component
+│   └── main.ts              # Entry point
+├── src-tauri/               # Tauri backend (Rust)
+├── docs/                    # Documentation and assets
+├── public/                  # Static assets
+├── package.json             # Node.js dependencies
+└── vite.config.ts          # Vite configuration
+```
+
+## 🛠️ Development
+
+### Available Scripts
+
+- `npm run dev` - Start development server with hot reload
+- `npm run build` - Build the application for production
+- `npm run preview` - Preview the production build locally
+- `npm run tauri` - Run Tauri commands
+
+### Tech Stack
+
+- **Frontend**: Vue 3 with TypeScript
+- **Build Tool**: Vite
+- **Desktop Framework**: Tauri
+- **Package Manager**: npm
+
+### Recommended IDE Setup
+
+- [VS Code](https://code.visualstudio.com/)
+- [Vue - Official](https://marketplace.visualstudio.com/items?itemName=Vue.volar) extension
+- [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) extension
+- [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer) extension
+
+## 📦 Building
+
+FM-MATE is built using GitHub Actions. The build workflow:
+
+- Runs on every push and pull request
+- Generates Windows x64 installers (MSI and NSIS)
+- Generates macOS Apple Silicon DMG
+- Uploads artifacts for download
+
+**Note**: Builds are currently not code-signed or notarized.
+
+## 📄 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## 📧 Support
+
+For issues, feature requests, or questions, please open an issue on the [GitHub repository](../../issues).
+
+---
+
+**Made with ❤️ using Tauri + Vue + TypeScript**
