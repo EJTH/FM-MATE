@@ -239,8 +239,21 @@ async function openInEmulator(firmware: InstalledFirmware, version: InstalledVer
     return
   }
   try {
-    await invoke('open_firmware_in_emulator', { id: firmware.id, version: version.version })
-    updateMessage.value = `Opened ${firmware.name} ${version.version} in FM1-Emu.`
+    const savePrompt = await invoke<{ tempFile: string; suggestedName: string }>('open_firmware_in_emulator', { id: firmware.id, version: version.version })
+    
+    const saveName = prompt('Save emulator session as:', savePrompt.suggestedName)
+    if (saveName) {
+      await invoke('save_emulator_temp_file', {
+        tempFile: savePrompt.tempFile,
+        targetName: saveName,
+        targetDir: version.savesPath || '',
+        firmwareId: firmware.id,
+        firmwareVersion: version.version,
+      })
+      updateMessage.value = `Emulator session saved as ${saveName}`
+    } else {
+      updateMessage.value = 'Emulator session not saved.'
+    }
   } catch (error) {
     updateMessage.value = error instanceof Error ? error.message : 'Could not open firmware in FM1-Emu.'
   }

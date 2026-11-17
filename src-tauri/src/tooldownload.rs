@@ -2,12 +2,11 @@ use flate2::read::GzDecoder;
 use serde::{Deserialize, Serialize};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tar::Archive as TarArchive;
 use tauri::{AppHandle, Manager};
 use zip::ZipArchive;
-use crate::{ensure_safe_name, firmware_root};
+use crate::ensure_safe_name;
 use crate::firmwarehub::make_http_client;
 
 #[derive(Deserialize)]
@@ -193,128 +192,6 @@ pub(crate) fn find_tool_executable(directory: &Path, expected_name: &str) -> Opt
         }
     }
     None
-}
-
-#[tauri::command]
-pub(super) fn open_firmware_in_emulator(app: AppHandle, id: String, version: String) -> Result<(), String> {
-    ensure_safe_name(&id)?;
-    ensure_safe_name(&version)?;
-    let version_root = firmware_root(&app)?.join(&id).join(&version);
-    let firmware_file = version_root.join("firmware.fwsc");
-    if !firmware_file.is_file() {
-        return Err("That firmware version is not installed.".into());
-    }
-    let saves_dir = version_root.join("saves");
-    std::fs::create_dir_all(&saves_dir)
-        .map_err(|error| format!("Could not create firmware saves folder: {error}"))?;
-    let emulator_flash_file = saves_dir.join("emulator.fm1save");
-    let emulator_root = tools_root(&app)?.join("fm1-emu");
-    if !emulator_root.is_dir() {
-        return Err("Download FM1-Emu from Settings → Extra Downloads first.".into());
-    }
-    #[cfg(target_os = "windows")]
-    let executable_name = "fm1-live.exe";
-    #[cfg(not(target_os = "windows"))]
-    let executable_name = "fm1-live";
-    let executable = find_tool_executable(&emulator_root, executable_name)
-        .ok_or_else(|| format!("Could not find {executable_name} in the installed FM1-Emu files."))?;
-    let mut command = Command::new(&executable);
-    command
-        .arg("--flash")
-        .arg(&emulator_flash_file)
-        .arg("--fwsc")
-        .arg(&firmware_file);
-    if let Some(directory) = executable.parent() {
-        command.current_dir(directory);
-    }
-    command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
-        .spawn().map(|_| ())
-        .map_err(|error| format!("Could not open firmware in FM1-Emu: {error}"))
-}
-
-#[tauri::command]
-pub(super) async fn try_firmware_in_emulator(app: AppHandle, id: String, version: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        ensure_safe_name(&id)?;
-        ensure_safe_name(&version)?;
-        let version_root = firmware_root(&app)?.join(&id).join(&version);
-        let firmware_file = version_root.join("firmware.fwsc");
-        if !firmware_file.is_file() {
-            return Err("That firmware version is not installed.".into());
-        }
-        let saves_dir = version_root.join("saves");
-        std::fs::create_dir_all(&saves_dir)
-            .map_err(|error| format!("Could not create firmware saves folder: {error}"))?;
-        let emulator_flash_file = saves_dir.join("emulator.fm1save");
-        let emulator_root = tools_root(&app)?.join("fm1-emu");
-        if !emulator_root.is_dir() {
-            return Err("Download FM1-Emu from Settings → Extra Downloads first.".into());
-        }
-        #[cfg(target_os = "windows")]
-        let executable_name = "fm1-live.exe";
-        #[cfg(not(target_os = "windows"))]
-        let executable_name = "fm1-live";
-        let executable = find_tool_executable(&emulator_root, executable_name)
-            .ok_or_else(|| format!("Could not find {executable_name} in the installed FM1-Emu files."))?;
-        let mut command = Command::new(&executable);
-        command.arg("--flash").arg(&emulator_flash_file).arg("--fwsc").arg(&firmware_file);
-        if let Some(directory) = executable.parent() {
-            command.current_dir(directory);
-        }
-        command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
-            .status().map_err(|error| format!("Could not start FM1-Emu: {error}"))?;
-        Ok(())
-    })
-    .await
-    .map_err(|error| format!("Could not wait for FM1-Emu: {error}"))?
-}
-
-#[tauri::command]
-pub(super) fn open_save_in_emulator(
-    app: AppHandle,
-    firmware_id: String,
-    version: String,
-    relative_path: String,
-) -> Result<(), String> {
-    ensure_safe_name(&firmware_id)?;
-    ensure_safe_name(&version)?;
-    let relative = Path::new(&relative_path);
-    if relative.as_os_str().is_empty()
-        || relative.is_absolute()
-        || relative.components().any(|component| !matches!(component, std::path::Component::Normal(_)))
-    {
-        return Err("Invalid save path.".into());
-    }
-    let version_root = firmware_root(&app)?.join(&firmware_id).join(&version);
-    let firmware_file = version_root.join("firmware.fwsc");
-    if !firmware_file.is_file() {
-        return Err("That firmware version is not installed.".into());
-    }
-    let saves_root = version_root.join("saves").canonicalize()
-        .map_err(|error| format!("Could not locate firmware saves folder: {error}"))?;
-    let save_file = saves_root.join(relative).canonicalize()
-        .map_err(|error| format!("Could not locate save file: {error}"))?;
-    if !save_file.starts_with(&saves_root) || !save_file.is_file() {
-        return Err("The selected file is outside the firmware saves folder.".into());
-    }
-    let emulator_root = tools_root(&app)?.join("fm1-emu");
-    if !emulator_root.is_dir() {
-        return Err("Download FM1-Emu from Settings → Extra Downloads first.".into());
-    }
-    #[cfg(target_os = "windows")]
-    let executable_name = "fm1-live.exe";
-    #[cfg(not(target_os = "windows"))]
-    let executable_name = "fm1-live";
-    let executable = find_tool_executable(&emulator_root, executable_name)
-        .ok_or_else(|| format!("Could not find {executable_name} in the installed FM1-Emu files."))?;
-    let mut command = Command::new(&executable);
-    command.arg("--flash").arg(&save_file).arg("--fwsc").arg(&firmware_file);
-    if let Some(directory) = executable.parent() {
-        command.current_dir(directory);
-    }
-    command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
-        .spawn().map(|_| ())
-        .map_err(|error| format!("Could not open save in FM1-Emu: {error}"))
 }
 
 #[tauri::command]

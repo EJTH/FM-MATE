@@ -5,6 +5,7 @@ mod firmwarehub;
 mod mflasher;
 mod tooldownload;
 mod editor_helper;
+mod emulator_helper;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -74,9 +75,9 @@ pub fn run() {
             tooldownload::get_tools_status,
             tooldownload::check_or_update_tool,
             tooldownload::check_app_update,
-            tooldownload::open_firmware_in_emulator,
-            tooldownload::try_firmware_in_emulator,
-            tooldownload::open_save_in_emulator,
+            emulator_helper::open_firmware_in_emulator,
+            emulator_helper::try_firmware_in_emulator,
+            emulator_helper::open_save_in_emulator,
             mflasher::m_flasher_find,
             mflasher::m_flasher_command,
             mflasher::m_flasher_backup,

@@ -20,7 +20,9 @@ const loadErrorMessage = ref('')
 const actionMessage = ref('')
 const selectedFirmwareId = ref('')
 const selectedVersion = ref('')
-const sortedSaves = computed(() => [...saves.value].sort((a, b) => b.modifiedAt - a.modifiedAt))
+const sortedSaves = computed(() => [...saves.value]
+  .filter((save) => !save.fileName.endsWith('.json'))
+  .sort((a, b) => b.modifiedAt - a.modifiedAt))
 const firmwareOptions = computed(() => [...new Map(saves.value.map((save) => [save.firmwareId, save.firmwareName])).entries()]
   .map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)))
 const versionOptions = computed(() => [...new Set(saves.value
@@ -71,12 +73,30 @@ async function deleteSave(save: InstalledSave) {
 async function emulateSave(save: InstalledSave) {
   actionMessage.value = ''
   try {
-    await invoke('open_save_in_emulator', {
+    const savePrompt = await invoke<{ tempFile: string; suggestedName: string }>('open_save_in_emulator', {
       firmwareId: save.firmwareId,
       version: save.version,
       relativePath: save.relativePath,
     })
-    actionMessage.value = `Opened ${save.fileName} in FM1-Emu.`
+    
+    const saveName = prompt('Save emulator session as:', savePrompt.suggestedName)
+    if (saveName) {
+      const lastSeparator = Math.max(
+        savePrompt.tempFile.lastIndexOf('/'),
+        savePrompt.tempFile.lastIndexOf('\\')
+      )
+      const targetDir = savePrompt.tempFile.substring(0, lastSeparator)
+      await invoke('save_emulator_temp_file', {
+        tempFile: savePrompt.tempFile,
+        targetName: saveName,
+        targetDir,
+        firmwareId: save.firmwareId,
+        firmwareVersion: save.version,
+      })
+      actionMessage.value = `Emulator session saved as ${saveName}`
+    } else {
+      actionMessage.value = 'Emulator session not saved.'
+    }
   } catch (error) {
     actionMessage.value = error instanceof Error ? error.message : String(error)
   }
@@ -121,7 +141,7 @@ function saveDeviceBackup() {
 <template>
   <section class="view-panel saves-view">
     <div class="view-heading">
-      <div><p class="eyebrow">DEVICE ARCHIVE</p><h1>Backups1</h1></div>
+      <div><p class="eyebrow">DEVICE ARCHIVE</p><h1>Backups</h1></div>
       <button class="outline-button" type="button" @click="openFirmwareFolder">OPEN FIRMWARE FOLDER</button>
     </div>
     <div class="device-backup-panel">
