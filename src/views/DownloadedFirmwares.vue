@@ -2,9 +2,10 @@
 import { computed, onActivated, ref } from 'vue'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { LazyStore } from '@tauri-apps/plugin-store'
-import { openPath, openUrl } from '@tauri-apps/plugin-opener'
+import { openUrl } from '@tauri-apps/plugin-opener'
 import FirmwareThumbnail from '../components/FirmwareThumbnail.vue'
 import FirmwareDetails from '../components/FirmwareDetails.vue'
+import InstallDropdown from '../components/InstallDropdown.vue'
 import type { InstalledFirmware, InstalledVersion } from '../types/firmware'
 import { loadFirmwareCatalog } from '../services/firmwareCatalog'
 import type { FirmwareRecord } from '../services/firmwareCatalog'
@@ -44,7 +45,6 @@ const folderError = ref('')
 const openingFolder = ref(false)
 const selectedFirmware = ref<InstalledFirmware | null>(null)
 const actionMessage = ref('')
-const installMenuId = ref('')
 
 const firmwares = computed<InstalledFirmware[]>(() => {
   const grouped = new Map<string, InstalledFirmware>()
@@ -181,8 +181,7 @@ async function openFirmwareFolder() {
   }
   openingFolder.value = true
   try {
-    const folder = await invoke<string>('get_firmware_folder')
-    await openPath(folder)
+    await invoke('open_firmware_folder')
   } catch (error) {
     folderError.value = error instanceof Error
       ? `Could not open the firmware folder: ${error.message}`
@@ -212,6 +211,20 @@ async function openEditor(firmware: InstalledFirmware, version?: InstalledVersio
     else window.open(url, '_blank', 'noopener,noreferrer')
   } catch (error) {
     actionMessage.value = error instanceof Error ? error.message : 'Could not open the editor.'
+  }
+}
+
+async function openInEmulator(firmware: InstalledFirmware, version: InstalledVersion) {
+  updateMessage.value = ''
+  if (!isTauri()) {
+    updateMessage.value = 'Open in emulator is available in the desktop app.'
+    return
+  }
+  try {
+    await invoke('open_firmware_in_emulator', { id: firmware.id, version: version.version })
+    updateMessage.value = `Opened ${firmware.name} ${version.version} in FM1-Emu.`
+  } catch (error) {
+    updateMessage.value = error instanceof Error ? error.message : 'Could not open firmware in FM1-Emu.'
   }
 }
 
@@ -290,8 +303,8 @@ async function deleteVersion(firmware: InstalledFirmware, version: InstalledVers
 }
 
 function installFirmware(firmware: InstalledFirmware, version: string) {
-  installMenuId.value = ''
   actionMessage.value = `Connect an FM-1 or SMK-37 to install ${firmware.name} ${version}.`
+  if (selectedFirmware.value?.id === firmware.id) updateMessage.value = actionMessage.value
 }
 
 </script>
@@ -326,12 +339,7 @@ function installFirmware(firmware: InstalledFirmware, version: string) {
         <div class="installed-card__buttons">
           <button class="favorite-button" :class="{ 'is-favorite': favoriteIds.includes(firmware.id) }" type="button" :aria-pressed="favoriteIds.includes(firmware.id)" :aria-label="favoriteIds.includes(firmware.id) ? `Remove ${firmware.name} from favorites` : `Add ${firmware.name} to favorites`" :title="favoriteIds.includes(firmware.id) ? 'Remove favorite' : 'Add favorite'" @click.stop="toggleFavorite(firmware.id)">{{ favoriteIds.includes(firmware.id) ? '♥' : '♡' }}</button>
           <button class="outline-button" type="button" :disabled="!hasEditor(firmware)" @click.stop="openEditor(firmware)">OPEN EDITOR</button>
-          <div class="install-dropdown" @click.stop>
-            <button class="outline-button install-button" type="button" aria-haspopup="menu" :aria-expanded="installMenuId === firmware.id" @click="installMenuId = installMenuId === firmware.id ? '' : firmware.id">INSTALL <span aria-hidden="true">▾</span></button>
-            <div v-if="installMenuId === firmware.id" class="install-menu" role="menu">
-              <button v-for="version in firmware.installedVersions" :key="version.version" type="button" role="menuitem" @click.stop="installFirmware(firmware, version.version)">Install {{ version.version }}</button>
-            </div>
-          </div>
+          <InstallDropdown :versions="firmware.installedVersions.map((item) => item.version)" @select="installFirmware(firmware, $event)" />
         </div>
       </article>
     </div>
@@ -344,9 +352,11 @@ function installFirmware(firmware: InstalledFirmware, version: string) {
       :update-message="updateMessage"
       :catalog-notice="catalogNotice"
       @close="selectedFirmware = null"
+      @open-in-emulator="openInEmulator(selectedFirmware, $event)"
       @open-editor="openEditor(selectedFirmware, $event)"
       @delete-version="deleteVersion(selectedFirmware, $event)"
       @open-saves="openSaves"
+      @install-version="installFirmware(selectedFirmware, $event)"
       @download-update="downloadUpdate(selectedFirmware)"
       @open-release="openReleaseNotes(selectedFirmware)"
     />
@@ -376,12 +386,6 @@ function installFirmware(firmware: InstalledFirmware, version: string) {
 .favorite-button { display: grid; min-width: 0; place-items: center; padding: 0; color: #a99d9c; background: #302d2c; border: 1px solid #514b4a; font-size: 20px; line-height: 1; cursor: pointer; }
 .favorite-button:hover, .favorite-button.is-favorite { color: #ff807f; border-color: #9a5559; }
 .favorite-button.is-favorite { background: #3d282a; text-shadow: 0 0 8px rgb(255 105 115 / 35%); }
-.installed-card__buttons .install-button { color: #c8e8df; background: #21413e; border-color: #3c9c8f; }
 .installed-card__buttons .outline-button:disabled { opacity: .45; cursor: not-allowed; }
-.install-dropdown { position: relative; }
-.install-dropdown > button { display: flex; width: 100%; align-items: center; justify-content: center; gap: 7px; }
-.install-menu { position: absolute; z-index: 5; right: 0; bottom: calc(100% + 6px); left: 0; display: grid; max-height: 220px; overflow: auto; padding: 4px; background: #242221; border: 1px solid #665772; box-shadow: 0 8px 20px #0008; }
-.install-menu button { padding: 8px 9px; color: #d8d0c8; background: transparent; border: 0; font: 12px 'Share Tech Mono', monospace; text-align: left; cursor: pointer; }
-.install-menu button:hover, .install-menu button:focus-visible { color: #fff; background: #34302f; }
 @media (max-width: 600px) { .downloaded-heading-actions { width: 100%; }.installed-grid { grid-template-columns: 1fr; } }
 </style>

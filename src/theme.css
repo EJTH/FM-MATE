@@ -125,6 +125,8 @@ h1 { margin: 0; color: #f0eae2; font-size: clamp(28px, 4vw, 40px); font-weight: 
 .repo-control input { min-width: 0; min-height: 40px; flex: 1; padding: 0 12px; color: #e9e2d9; background: #211f1e; border: 1px solid #4a4442; font: 13px 'Share Tech Mono', monospace; }
 .repo-control input::placeholder { color: #817a77; }
 .repo-control button:disabled { opacity: .5; cursor: not-allowed; }
+.path-control { flex-wrap: wrap; }
+.path-control input { flex-basis: 320px; }
 .settings-feedback { min-height: 16px; margin: 9px 0 0; color: #72e7c3; font: 12px 'Share Tech Mono', monospace; }
 .settings-feedback.is-error { color: #ed9a7b; }
 .lcd-card { max-width: 980px; padding: clamp(16px, 3vw, 28px); background: #282524; border: 1px solid #48413f; }
