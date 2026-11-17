@@ -4,7 +4,7 @@ FM-MATE is a modern, user-friendly desktop application for managing FM-1 device 
 
 ## Demo
 
-![FM-MATE Demo](docs/demo.webp)
+![FM-MATE Demo](docs/neodemo.webp)
 
 ## Quick Install
 
