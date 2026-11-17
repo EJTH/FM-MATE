@@ -52,11 +52,15 @@ button { font: inherit; }
   border: clamp(3px, .45vw, 6px) dashed currentColor;
 }
 .lcd-device-icon span { width: 68%; height: 5px; background: repeating-linear-gradient(90deg, currentColor 0 5px, transparent 5px 12px); }
+.lcd-device-icon .lcd-progress-value { width: auto; height: auto; background: none; font-size: clamp(24px, 4vw, 50px); font-weight: 700; line-height: 1; }
 .lcd-content { min-width: 0; align-self: center; padding-left: clamp(12px, 1.8vw, 24px); border-left: 1px solid rgb(38 48 19 / 60%); }
 .lcd-content h2 { margin: 0 0 .04em; font-size: clamp(20px, 3vw, 38px); line-height: 1.05; letter-spacing: .04em; }
 .lcd-message, .lcd-connection { margin: .15em 0 0; font-size: clamp(11px, 1.55vw, 19px); font-weight: 700; letter-spacing: .06em; }
 .lcd-connection { margin-top: .18em; padding-top: .2em; border-top: 1px solid rgb(38 48 19 / 55%); }
 .lcd-hint { grid-column: 1 / -1; margin: .35em 0 0; padding-top: .25em; border-top: 1px solid rgb(38 48 19 / 65%); font-size: clamp(10px, 1.5vw, 18px); font-weight: 700; letter-spacing: .06em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@keyframes lcd-completion-blink { to { visibility: hidden; } }
+.lcd-message--complete { animation: lcd-completion-blink .8s steps(2, start) infinite; }
+@media (prefers-reduced-motion: reduce) { .lcd-message--complete { animation: none; } }
 
 .action-button {
   position: relative;

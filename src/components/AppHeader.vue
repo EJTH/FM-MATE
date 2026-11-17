@@ -34,14 +34,7 @@ const views: { id: View; label: string }[] = [
         </button>
       </nav>
       <button class="header-lcd" type="button" role="tab" :aria-selected="activeView === 'lcd'" aria-label="Open LCD display" @click="emit('navigate', 'lcd')">
-        <LcdDisplay :title="lcdState.title" :message="lcdState.message" :message-class="lcdState.messageClass" :connection="lcdState.connection" :hint="lcdState.hint">
-          <template #graphic>
-            <div class="lcd-device-icon" aria-hidden="true">
-              <span v-if="lcdState.progress === null" />
-              <span v-else class="lcd-progress-value">{{ lcdState.progress }}%</span>
-            </div>
-          </template>
-        </LcdDisplay>
+        <LcdDisplay v-bind="lcdState" />
       </button>
     </div>
   </header>
@@ -55,11 +48,12 @@ const views: { id: View; label: string }[] = [
 .top-tab { display: inline-flex; min-height: 39px; align-items: center; gap: 9px; padding: 0 12px; color: #c8c0d0; background: linear-gradient(135deg, #302d2c, #262423); border: 1px solid #514b4a; font-size: 14px; font-weight: 700; letter-spacing: .04em; white-space: nowrap; cursor: pointer; transition: border-color .15s, color .15s, background .15s; }
 .top-tab:hover { color: #f0e9df; border-color: #82728d; }.top-tab.is-active { color: #f0eae2; background: linear-gradient(135deg, #21413e, #1b3331); border-color: #3c9c8f; box-shadow: inset 0 0 0 1px rgb(87 224 198 / 9%); }
 .tab-indicator { width: 9px; height: 9px; flex: 0 0 9px; border-radius: 50%; background: #45403e; box-shadow: inset 0 1px 2px #171514; }.is-active .tab-indicator { background: #f19a47; box-shadow: 0 0 8px rgb(241 154 71 / 45%); }
-.header-lcd { display: block; width: 100%; min-width: 0; padding: 5px; overflow: hidden; background: #111110; border: 1px solid #51483e; cursor: pointer; }
+.header-lcd { display: block; width: 100%; min-width: 0; padding: 5px; overflow: hidden; background: #111110; border: 1px solid #51483e; cursor: pointer; text-align:left }
 .header-lcd .lcd-bezel { width: 100%; padding: 3px; border: 0; box-shadow: none; }.header-lcd .lcd-screen { min-height: 45px; padding: 5px 7px; column-gap: 6px; grid-template-columns: minmax(22px, 24%) minmax(0, 1fr); aspect-ratio: auto; }
 .header-lcd .lcd-device-icon { border-width: 2px; }.header-lcd .lcd-device-icon span { height: 2px; background: repeating-linear-gradient(90deg, currentColor 0 2px, transparent 2px 5px); }.header-lcd .lcd-content { padding-left: 6px; }
-.header-lcd .lcd-content h2 { font-size: clamp(10px, 1.1vw, 14px); }.header-lcd .lcd-message, .header-lcd .lcd-connection { margin-top: 1px; font-size: clamp(7px, .8vw, 10px); }.header-lcd .lcd-hint { margin-top: 2px; padding-top: 1px; font-size: clamp(6px, .7vw, 9px); }
-.header-lcd .lcd-message { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.header-lcd .lcd-message--complete { animation: lcd-completion-blink .8s steps(2, start) infinite; }.header-lcd .lcd-device-icon .lcd-progress-value { width: auto; height: auto; background: none; font-size: clamp(8px, .9vw, 14px); font-weight: 700; line-height: 1; }
+.header-lcd .lcd-content h2 { font-size: clamp(10px, 1.1vw, 14px); }.header-lcd .lcd-message, .header-lcd .lcd-connection { margin-top: 1px; font-size: clamp(7px, .8vw, 10px); }
+.header-lcd .lcd-hint { margin-top: 2px; padding-top: 1px; font-size: clamp(6px, .7vw, 9px); }
+.header-lcd .lcd-message { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.header-lcd .lcd-device-icon .lcd-progress-value { width: auto; height: auto; background: none; font-size: clamp(8px, .9vw, 14px); font-weight: 700; line-height: 1; }
 .header-lcd:focus-visible, .top-tab:focus-visible { outline: 2px solid #65e1c1; outline-offset: 2px; }
 @media (max-width: 1000px) {
   .topbar-inner { grid-template-columns: minmax(0, 1fr) minmax(190px, 34%); grid-template-areas: 'brand lcd' 'nav nav'; row-gap: 12px; }

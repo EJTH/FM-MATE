@@ -24,10 +24,15 @@ const detected = ref<FoundDevice | null>(null)
 const selectedBackupTarget = ref('')
 const busyAction = ref('')
 const terminalLines = ref<string[]>([])
+const terminalOutput = ref<HTMLElement | null>(null)
+watch(terminalLines, () => {
+  if (terminalOutput.value) terminalOutput.value.scrollTop = terminalOutput.value.scrollHeight
+}, { deep: true, flush: 'post' })
 const lastError = ref('')
 const infoFirmware = ref('')
 const infoModel = ref('')
 const backupProgress = ref<number | null>(null)
+const flashProgress = ref<number | null>(null)
 const lcdStatusError = ref('')
 const lcdCompletion = ref('')
 const switchStage = ref<'choose' | 'flash'>('choose')
@@ -60,6 +65,11 @@ const displayTitle = computed(() => {
   const raw = detected.value.deviceName ?? ''
   const board = raw.match(/SMK-37|FM-1/i)?.[0]?.toUpperCase() || selectedBackupOption.value?.model || ''
   const firmware = infoFirmware.value || matchingFirmware.value?.name || (detected.value.downloadMode ? selectedBackupOption.value?.firmwareName : raw.replace(/\s*\([^)]*\).*$/, '').replace(/\s+(fm-1|smk-37).*$/i, '').trim())
+  const request = props.pendingAction
+  if (request && request.type !== 'backup') {
+    const target = request.type === 'flash-save' ? request.save.firmwareName : request.firmwareName
+    return [infoModel.value || board, `${firmware || 'UNKNOWN'} -> ${target}`].filter(Boolean).join(' ')
+  }
   return [infoModel.value || board, firmware || (!board ? raw : 'CONNECTED')].filter(Boolean).join(' ')
 })
 const connectionStatus = computed(() => {
@@ -78,7 +88,7 @@ const pendingActionLabel = computed(() => {
     return switchStage.value === 'flash' ? 'FLASH FIRMWARE' : 'BACKUP BEFORE FLASH?'
   }
   if (request.type === 'flash-firmware') return 'FLASH FIRMWARE'
-  return request.save.fileName.toLocaleLowerCase().endsWith('.fwsc') ? 'FLASH FIRMWARE' : 'RESTORE BACKUP'
+  return request.save.fileName.toLocaleLowerCase().endsWith('.fwsc') ? 'BACKUP' : 'WRITE BACKUP TO FLASH'
 })
 const pendingActionDetail = computed(() => {
   const request = props.pendingAction
@@ -90,6 +100,8 @@ const pendingActionDetail = computed(() => {
 })
 const lcdMessage = computed(() => {
   if (busyAction.value === 'backup') return backupProgress.value === null ? 'BACKUP IN PROGRESS' : `BACKUP ${backupProgress.value}%`
+  if (busyAction.value === 'firmware') return flashProgress.value === null ? 'FIRMWARE FLASHING' : `FLASHING ${flashProgress.value}%`
+  if (busyAction.value === 'flash') return flashProgress.value === null ? 'BACKUP RESTORING' : `RESTORING ${flashProgress.value}%`
   if (lcdStatusError.value) return `ERROR: ${lcdStatusError.value}`
   if (lcdCompletion.value) return lcdCompletion.value
   return props.pendingAction
@@ -102,11 +114,13 @@ const lcdState = computed<MFlasherLcdState>(() => ({
   message: lcdMessage.value,
   connection: 'USB',
   hint: lcdHint.value,
-  progress: backupProgress.value,
+  progress: busyAction.value === 'backup' ? backupProgress.value : (busyAction.value === 'firmware' || busyAction.value === 'flash' ? flashProgress.value : null),
   messageClass: lcdMessageClass.value,
 }))
 const lcdHint = computed(() => {
   if (busyAction.value === 'backup') return 'READING FLASH DATA...'
+  if (busyAction.value === 'firmware') return 'FLASHING FIRMWARE...'
+  if (busyAction.value === 'flash') return 'RESTORING BACKUP...'
   if (props.pendingAction && detected.value?.deviceFound) return pendingActionDetail.value
   return detected.value?.downloadMode ? 'RESTART DEVICE. PRESS THE REBOOT BUTTON BELOW' : 'HOLD SEQ REC (SMK-37) OR REC (FM-1) WHILE SWITCHING ON'
 })
@@ -123,7 +137,7 @@ const primaryActionLabel = computed(() => {
 function appendTerminal(command: string, output: string) {
   const stamp = new Date().toLocaleTimeString()
   terminalLines.value.push(`[${stamp}] $ m-flasher ${command}`)
-  if (output.trim()) terminalLines.value.push(...output.trimEnd().split(/\r?\n/))
+  if (output.trim()) terminalLines.value.push(...output.replace(/\r/g, ' ').trimEnd().split('\n'))
   if (terminalLines.value.length > 300) terminalLines.value.splice(0, terminalLines.value.length - 300)
 }
 
@@ -362,22 +376,34 @@ async function flashFirmwareRequest(request: Extract<MFlasherRequest, { type: 'f
   busyAction.value = 'firmware'
   clearLcdFeedback()
   lastError.value = ''
+  const operationId = `flash-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  let unlisten: (() => void) | undefined
   try {
+    flashProgress.value = 0
+    unlisten = await listen<{ operationId: string; output: string; progress: number | null }>('mflasher-flash-progress', (event) => {
+      if (event.payload.operationId === operationId && event.payload.progress !== null) {
+        flashProgress.value = event.payload.progress
+      }
+    })
     const output = await invoke<string>('m_flasher_flash_firmware', {
       firmwareId: request.firmwareId,
       version: request.version,
+      operationId,
     })
+    flashProgress.value = 100
     appendTerminal(`firmware ${request.firmwareName} ${request.version}`, output)
     localStorage.setItem('fm-mate.lastFlashedFirmwareTarget', `${request.firmwareId}::${request.version}`)
     showLcdCompletion('FIRMWARE FLASHED!')
     return true
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
+    flashProgress.value = null
     lastError.value = message
     lcdStatusError.value = message
     appendTerminal('firmware', message)
     return false
   } finally {
+    unlisten?.()
     busyAction.value = ''
   }
 }
@@ -428,16 +454,26 @@ async function handlePendingAction(request: MFlasherRequest) {
   handledRequestId = request.requestId
   clearLcdFeedback()
   lastError.value = ''
+  let unlisten: (() => void) | undefined
   try {
     if (request.type === 'flash-firmware') {
       await flashFirmwareRequest(request)
     } else if (request.type === 'flash-save') {
       busyAction.value = 'flash'
+      const operationId = `flash-${Date.now()}-${Math.random().toString(36).slice(2)}`
+      flashProgress.value = 0
+      unlisten = await listen<{ operationId: string; output: string; progress: number | null }>('mflasher-flash-progress', (event) => {
+        if (event.payload.operationId === operationId && event.payload.progress !== null) {
+          flashProgress.value = event.payload.progress
+        }
+      })
       const output = await invoke<string>('m_flasher_flash_save', {
         firmwareId: request.save.firmwareId,
         version: request.save.version,
         relativePath: request.save.relativePath,
+        operationId,
       })
+      flashProgress.value = 100
       appendTerminal(`flash ${request.save.fileName}`, output)
       showLcdCompletion(request.save.fileName.toLocaleLowerCase().endsWith('.fwsc') ? 'FIRMWARE FLASHED!' : 'BACKUP FLASHED!')
     } else if (request.type === 'backup') {
@@ -451,7 +487,9 @@ async function handlePendingAction(request: MFlasherRequest) {
     lastError.value = message
     lcdStatusError.value = message
     appendTerminal(request.type, message)
+    if (busyAction.value === 'flash') flashProgress.value = null
   } finally {
+    unlisten?.()
     busyAction.value = ''
     if (!lastError.value) await findDevice()
     emit('actionComplete', request.requestId)
@@ -486,16 +524,14 @@ function cancelPendingAction() {
       <div><p class="eyebrow">DEVICE STATUS</p><h1>M-Flasher</h1></div>
       <span class="connection-pill" :class="{ 'connection-pill--online': detected?.deviceFound }"><i /> {{ connectionStatus }}</span>
     </div>
+    <div class="mflasher-content">
     <div class="lcd-card">
-      <LcdDisplay :title="displayTitle" :message="lcdMessage" :message-class="lcdMessageClass" connection="USB" :hint="lcdHint">
-        <template #graphic>
-          <div class="lcd-device-icon" aria-hidden="true">
-            <span v-if="backupProgress === null" />
-            <span v-else class="lcd-progress-value">{{ backupProgress }}%</span>
-          </div>
-        </template>
-      </LcdDisplay>
-      <div v-if="pendingAction?.type === 'switch-firmware'" class="pending-actions pending-actions--switch">
+      <LcdDisplay v-bind="lcdState" />
+      <div v-if="!detected?.deviceFound" class="lcd-actions">
+        <button class="action-button" type="button" :disabled="!!busyAction" @click="primaryAction">{{ primaryActionLabel }}</button>
+        <button v-if="pendingAction" class="outline-button pending-cancel" type="button" :disabled="!!busyAction" @click="cancelPendingAction">CANCEL</button>
+      </div>
+      <div v-else-if="pendingAction?.type === 'switch-firmware'" class="pending-actions pending-actions--switch">
         <template v-if="pendingAction.automaticallyBackup">
           <button class="action-button action-button--primary" type="button" :disabled="!!busyAction || !pendingActionReady" @click="confirmBackupAndFlash">BACKUP &amp; FLASH</button>
           <button class="outline-button pending-cancel" type="button" :disabled="!!busyAction" @click="cancelPendingAction">CANCEL</button>
@@ -512,6 +548,7 @@ function cancelPendingAction() {
       </div>
       <div v-else-if="pendingAction" class="pending-actions">
         <button class="action-button action-button--primary" type="button" :disabled="!!busyAction || !pendingActionReady" @click="confirmPendingAction">{{ pendingActionLabel }}</button>
+        <button v-if="pendingAction.type === 'flash-save' && !pendingAction.save.fileName.toLocaleLowerCase().endsWith('.fwsc')" class="action-button" type="button" :disabled="!!busyAction || !detected?.deviceFound || !selectedBackupTarget" @click="backupDevice">{{ busyAction === 'backup' ? 'SAVING…' : 'SAVE BACKUP' }}</button>
         <button class="outline-button pending-cancel" type="button" :disabled="!!busyAction" @click="cancelPendingAction">CANCEL</button>
       </div>
       <div v-else class="lcd-actions">
@@ -534,8 +571,9 @@ function cancelPendingAction() {
         <h2>M-FLASHER TERMINAL</h2>
         <button class="outline-button terminal-clear" type="button" :disabled="!terminalLines.length" @click="clearTerminal">CLEAR TERMINAL</button>
       </div>
-      <pre class="terminal-output" aria-live="polite">{{ terminalLines.join('\n') || 'Waiting for M-Flasher output…' }}</pre>
+      <pre ref="terminalOutput" class="terminal-output" aria-live="polite">{{ terminalLines.join('\n') || 'Waiting for M-Flasher output…' }}</pre>
     </section>
+    </div>
   </section>
 </template>
 
@@ -543,13 +581,11 @@ function cancelPendingAction() {
 .lcd-view .connection-pill { display: inline-flex; align-items: center; gap: 8px; }
 .lcd-view .connection-pill i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #988b8b; }
 .lcd-view .connection-pill--online i { background: #68e1be; box-shadow: 0 0 8px #68e1be88; }
-.lcd-card { max-width: 980px; padding: clamp(16px, 3vw, 28px); background: #282524; border: 1px solid #48413f; }
-.lcd-device-icon .lcd-progress-value { width: auto; height: auto; background: none; font-size: clamp(24px, 4vw, 50px); font-weight: 700; line-height: 1; }
+.mflasher-content { display: flex; flex-wrap: wrap; align-items: stretch; gap: 18px; }
+.mflasher-content .lcd-card { flex: 0 0 min(100%, 980px); }
+.lcd-card { max-width: 980px; padding: clamp(16px, 3vw, 28px); background: #282524; border: 1px solid #48413f; display: flex; flex-direction: column; }
 .lcd-card .lcd-message { font-size: clamp(13px, 1.65vw, 20px); line-height: 1.1; overflow-wrap: anywhere; }
-.lcd-card .lcd-message--complete { animation: lcd-completion-blink .8s steps(2, start) infinite; }
 .lcd-card .lcd-message--error { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font-size: clamp(11px, 1.35vw, 16px); }
-@keyframes lcd-completion-blink { to { visibility: hidden; } }
-@media (prefers-reduced-motion: reduce) { .lcd-card .lcd-message--complete, .header-lcd .lcd-message--complete { animation: none; } }
 .lcd-actions { display: flex; gap: 10px; margin-top: 15px; }
 .lcd-actions .action-button { flex: 1; justify-content: center; min-height: 48px; }
 .pending-actions { display: flex; gap: 10px; margin-top: 15px; }
@@ -560,10 +596,10 @@ function cancelPendingAction() {
 .lcd-error { margin: 12px 0 0; color: #efaa9e; font: 12px 'Share Tech Mono', monospace; }
 .lcd-caption { margin: 14px 0 0; color: #b49bdc; font: 11px 'Share Tech Mono', monospace; letter-spacing: .12em; }
 .lcd-caption span { color: #73dfc1; }
-.mflasher-terminal { max-width: 980px; margin-top: 18px; border: 1px solid #514754; background: #211f20; }
+.mflasher-terminal { flex: 1 1 340px; min-width: min(100%, 340px); max-width: 980px; border: 1px solid #514754; background: #211f20; display: flex; flex-direction: column; }
 .terminal-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 12px; border-bottom: 1px solid #514754; }
 .terminal-heading h2 { margin: 0; color: #b49bdc; font-size: 12px; letter-spacing: .16em; }
 .terminal-clear { min-height: 30px; padding: 4px 10px; font-size: 10px; letter-spacing: .1em; }
-.terminal-output { height: 240px; overflow: auto; margin: 0; padding: 12px; color: #b9d6c9; background: #171718; font: 12px/1.55 'Share Tech Mono', monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
-@media (max-width: 560px) { .lcd-actions, .pending-actions { flex-direction: column; } .pending-cancel { min-width: 0; } .terminal-output { height: 200px; } }
+.terminal-output { flex: 1; overflow: auto; margin: 0; padding: 12px; color: #b9d6c9; background: #171718; font: 12px/1.55 'Share Tech Mono', monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 560px) { .lcd-actions, .pending-actions { flex-direction: column; } .pending-cancel { min-width: 0; } }
 </style>
