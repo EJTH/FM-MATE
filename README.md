@@ -2,6 +2,10 @@
 
 FM-MATE is an app store like experience for managing your FM-1 firmwares. Download, flash, backup, save and switch effortlessly between firmwares - Offline!
 
+## Builds
+
+The Build workflow runs on pushes, pull requests, and manual dispatches. It uploads Windows x64 installers and a macOS Apple Silicon DMG as workflow artifacts. The builds are not code-signed or notarized.
+
 
 # Tauri + Vue + TypeScript
 
