@@ -207,28 +207,9 @@ pub(super) async fn download_firmware(
         .get("editor")
         .and_then(serde_json::Value::as_str)
     {
-        if let Ok(editor_url) = reqwest::Url::parse(editor_url) {
-            if matches!(editor_url.scheme(), "https" | "http") {
-                if let Ok(client) = make_http_client() {
-                    if let Ok(response) = client.get(editor_url).send().await {
-                        if response.status().is_success()
-                            && !response
-                                .content_length()
-                                .is_some_and(|size| size > 16 * 1024 * 1024)
-                        {
-                            if let Ok(bytes) = response.bytes().await {
-                                if !bytes.is_empty() && bytes.len() <= 16 * 1024 * 1024 {
-                                    let editor_dir = version_dir.join("editor");
-                                    if std::fs::create_dir_all(&editor_dir).is_ok() {
-                                        let _ =
-                                            std::fs::write(editor_dir.join("editor.html"), bytes);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+        let editor_dir = version_dir.join("editor");
+        if let Err(e) = crate::editor_helper::download_editor(editor_url, &editor_dir).await {
+            eprintln!("Warning: Failed to download editor: {}", e);
         }
     }
 

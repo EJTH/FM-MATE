@@ -1149,10 +1149,12 @@ dependencies = [
 
 [[package]]
 name = "fm-mate"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
  "flate2",
+ "once_cell",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",
@@ -1161,6 +1163,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-opener",
  "tauri-plugin-store",
+ "uuid",
  "zip",
 ]
 

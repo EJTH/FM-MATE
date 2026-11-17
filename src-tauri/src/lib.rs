@@ -4,6 +4,7 @@ use tauri::{AppHandle, Manager};
 mod firmwarehub;
 mod mflasher;
 mod tooldownload;
+mod editor_helper;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
