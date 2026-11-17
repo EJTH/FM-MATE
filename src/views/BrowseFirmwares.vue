@@ -250,19 +250,6 @@ async function beginFirmwareInstall(firmware: FirmwareRecord) {
   })
 }
 
-async function installFromResult(firmware: FirmwareRecord) {
-  if (!isTauri()) {
-    downloadIsError.value = true
-    downloadMessage.value = 'Installing firmware is available in the FM-MATE desktop app.'
-    return
-  }
-  if (hasDownloaded(firmware)) {
-    await beginFirmwareInstall(firmware)
-  } else {
-    await downloadFirmware(firmware, true)
-  }
-}
-
 async function tryFirmware(firmware: FirmwareRecord) {
   if (!isTauri()) {
     downloadIsError.value = true
