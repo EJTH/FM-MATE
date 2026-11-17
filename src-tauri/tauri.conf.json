@@ -34,7 +34,6 @@
     ],
     "macOS": {
       "minimumSystemVersion": "11.0",
-      "signingIdentity": "${{ secrets.APPLE_SIGNING_IDENTITY }}",
       "entitlements": null
     }
   }
