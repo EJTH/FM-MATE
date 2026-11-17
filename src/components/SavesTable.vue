@@ -118,5 +118,5 @@ function confirmDeleteSave() {
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .saves-empty { min-height: 260px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 25px; text-align: center; }
 .saves-empty h2 { margin: 0 0 5px; color: #e3dcd2; font-size: 20px; font-weight: 600; }.saves-empty p { margin: 0; color: #a49b97; font: 13px 'Share Tech Mono', monospace; }
-@media (max-width: 650px) { .saves-table th, .saves-table td { padding: 9px 8px; }.saves-table { font-size: 11px; } }
+@media (max-width: 450px) { .saves-table th, .saves-table td { padding: 9px 8px; }.saves-table { font-size: 11px; } }
 </style>

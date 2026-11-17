@@ -242,7 +242,21 @@ fn stream_flash_output<R: Read>(mut reader: R, app: AppHandle, operation_id: Str
 }
 
 #[tauri::command]
-pub(super) fn m_flasher_flash_save(
+pub(super) async fn m_flasher_flash_save(
+    app: AppHandle,
+    firmware_id: String,
+    version: String,
+    relative_path: String,
+    operation_id: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        m_flasher_flash_save_sync(app, firmware_id, version, relative_path, operation_id)
+    })
+    .await
+    .map_err(|error| format!("Could not wait for M-Flasher flash task: {error}"))?
+}
+
+fn m_flasher_flash_save_sync(
     app: AppHandle,
     firmware_id: String,
     version: String,

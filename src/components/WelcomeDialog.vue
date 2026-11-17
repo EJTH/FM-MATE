@@ -13,8 +13,9 @@ const emit = defineEmits<{ dismiss: [] }>()
         <button type="button" aria-label="Close welcome dialog" @click="emit('dismiss')">×</button>
       </header>
       <div class="welcome-content">
+        <img src="/fm-mate-logo.svg" alt="FM-MATE Logo" class="welcome-logo" />
         <p class="welcome-thanks">Thanks for downloading FM-MATE!</p>
-        <p class="welcome-intro">These tools work with your FM-1. Download them here when you are ready:</p>
+        <p class="welcome-intro">Before you get started, be sure </p>
         <ToolDownloadsSection
           title="TOOLS YOU CAN DOWNLOAD"
           description="M-Flasher is required to install firmware and create device backups. FM1-Emu is optional and lets you try firmware locally before using it on your device."
@@ -33,6 +34,7 @@ const emit = defineEmits<{ dismiss: [] }>()
 .welcome-titlebar strong { min-width: 0; flex: 1; color: #c9b8df; font-size: 11px; letter-spacing: .13em; }
 .welcome-titlebar button { width: 29px; height: 29px; color: #d5c8d7; background: #382e35; border: 1px solid #665364; font-size: 20px; line-height: 1; cursor: pointer; }
 .welcome-content { padding: 22px; }
+.welcome-logo { width: 240px; height: 240px; margin: 0 auto 20px; display: block; object-fit: contain; }
 .welcome-thanks { margin: 0 0 7px; color: #72e7c3; font-size: 22px; font-weight: 700; }
 .welcome-intro { margin: 0 0 18px; color: #d5cec6; font: 13px/1.6 'Share Tech Mono', monospace; }
 .welcome-content .settings-group { padding: 0; border: 0; }

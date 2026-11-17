@@ -3,6 +3,7 @@ import { computed, onActivated, ref, watch } from 'vue'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import LcdDisplay from '../components/LcdDisplay.vue'
+import ConfirmationDialog from '../components/ConfirmationDialog.vue'
 import type { MFlasherLcdState, MFlasherRequest } from '../types/flasher'
 
 const props = defineProps<{ pendingAction?: MFlasherRequest | null }>()
@@ -31,11 +32,13 @@ watch(terminalLines, () => {
 const lastError = ref('')
 const infoFirmware = ref('')
 const infoModel = ref('')
+const bootloaderInfo = ref('')
 const backupProgress = ref<number | null>(null)
 const flashProgress = ref<number | null>(null)
 const lcdStatusError = ref('')
 const lcdCompletion = ref('')
 const switchStage = ref<'choose' | 'flash'>('choose')
+const confirmationDialog = ref<{ title: string; message: string; confirmLabel: string; cancelLabel: string; onConfirm: () => void } | null>(null)
 let handledRequestId = 0
 let shownRequestId = 0
 const backupOptions = computed<BackupOption[]>(() => devices.value.map((firmware) => ({
@@ -315,6 +318,62 @@ async function runCommand(action: 'restart' | 'download-mode' | 'info') {
   }
 }
 
+async function updateBootloader() {
+  clearLcdFeedback()
+  busyAction.value = 'info'
+  lastError.value = ''
+  try {
+    const output = await invoke<string>('m_flasher_command', { action: 'info' })
+    appendTerminal('info', output)
+    
+    const model = output.match(/^\s*model\s+(.+)$/im)?.[1]?.trim()
+    const firmware = output.match(/^\s*firmware\s+(.+)$/im)?.[1]?.trim()
+    if (model) infoModel.value = model
+    if (firmware) infoFirmware.value = firmware
+    
+    const bootloaderMatch = output.match(/^\s*bootloader\s+(.+)$/im)?.[1]?.trim()
+    bootloaderInfo.value = bootloaderMatch || ''
+    
+    if (bootloaderMatch) {
+      if (bootloaderMatch.includes('m-bootloader')) {
+        confirmationDialog.value = {
+          title: 'BOOTLOADER CHECK',
+          message: `${bootloaderMatch} already installed, continue anyways?`,
+          confirmLabel: 'CONTINUE',
+          cancelLabel: 'CANCEL',
+          onConfirm: () => {
+            confirmationDialog.value = null
+            lastError.value = 'Continuing with m-bootloader already installed.'
+            lcdStatusError.value = lastError.value
+          },
+        }
+      } else {
+        confirmationDialog.value = {
+          title: 'BOOTLOADER WARNING',
+          message: 'It is seriously recommended that you install m-bootloader to prevent bricking, do you want to install it now?',
+          confirmLabel: 'INSTALL',
+          cancelLabel: 'CANCEL',
+          onConfirm: () => {
+            confirmationDialog.value = null
+            lastError.value = 'User chose to install m-bootloader. (Feature not yet implemented)'
+            lcdStatusError.value = lastError.value
+          },
+        }
+      }
+    } else {
+      lastError.value = 'Could not determine bootloader status.'
+      lcdStatusError.value = lastError.value
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    lastError.value = message
+    lcdStatusError.value = message
+    appendTerminal('info', message)
+  } finally {
+    busyAction.value = ''
+  }
+}
+
 async function primaryAction() {
   clearLcdFeedback()
   if (!detected.value?.deviceFound) {
@@ -554,7 +613,7 @@ function cancelPendingAction() {
       <div v-else class="lcd-actions">
         <button class="action-button" type="button" :disabled="!!busyAction" @click="primaryAction">{{ primaryActionLabel }}</button>
         <button class="action-button" type="button" :disabled="!!busyAction || !detected?.deviceFound || !selectedBackupTarget" @click="backupDevice">{{ busyAction === 'backup' ? 'SAVING…' : 'BACKUP' }}</button>
-        <button class="action-button" type="button" :disabled="!!busyAction || !detected?.deviceFound" @click="runCommand('info')">{{ busyAction === 'info' ? 'READING…' : 'INFO' }}</button>
+        <button class="action-button" type="button" :disabled="!!busyAction || !detected?.deviceFound" @click="updateBootloader">{{ busyAction === 'info' ? 'READING…' : 'Update bootloader' }}</button>
       </div>
       <label class="backup-firmware-picker">
         FIRMWARE TO ASSOCIATE WITH THIS SAVE
@@ -575,15 +634,25 @@ function cancelPendingAction() {
     </section>
     </div>
   </section>
+  <ConfirmationDialog 
+    v-if="confirmationDialog"
+    :title="confirmationDialog.title"
+    :message="confirmationDialog.message"
+    :confirmLabel="confirmationDialog.confirmLabel"
+    :cancelLabel="confirmationDialog.cancelLabel"
+    @confirm="confirmationDialog.onConfirm"
+    @cancel="confirmationDialog = null"
+  />
 </template>
 
 <style>
 .lcd-view .connection-pill { display: inline-flex; align-items: center; gap: 8px; }
 .lcd-view .connection-pill i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #988b8b; }
 .lcd-view .connection-pill--online i { background: #68e1be; box-shadow: 0 0 8px #68e1be88; }
-.mflasher-content { display: flex; flex-wrap: wrap; align-items: stretch; gap: 18px; }
-.mflasher-content .lcd-card { flex: 0 0 min(100%, 980px); }
-.lcd-card { max-width: 980px; padding: clamp(16px, 3vw, 28px); background: #282524; border: 1px solid #48413f; display: flex; flex-direction: column; }
+.lcd-view { display: flex; flex-direction: column; height: 100vh; padding-top: clamp(25px, 4vw, 48px) !important; }
+.mflasher-content { display: flex; flex-wrap: nowrap; align-items: stretch; gap: 18px; max-height: calc(100vh - 180px); overflow: hidden; flex: 1; }
+.mflasher-content .lcd-card { flex: 0 0 auto; min-width: 0; }
+.lcd-card { width: 100%; max-width: 980px; padding: clamp(16px, 3vw, 28px); background: #282524; border: 1px solid #48413f; display: flex; flex-direction: column; overflow: auto; }
 .lcd-card .lcd-message { font-size: clamp(13px, 1.65vw, 20px); line-height: 1.1; overflow-wrap: anywhere; }
 .lcd-card .lcd-message--error { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font-size: clamp(11px, 1.35vw, 16px); }
 .lcd-actions { display: flex; gap: 10px; margin-top: 15px; }
@@ -596,10 +665,10 @@ function cancelPendingAction() {
 .lcd-error { margin: 12px 0 0; color: #efaa9e; font: 12px 'Share Tech Mono', monospace; }
 .lcd-caption { margin: 14px 0 0; color: #b49bdc; font: 11px 'Share Tech Mono', monospace; letter-spacing: .12em; }
 .lcd-caption span { color: #73dfc1; }
-.mflasher-terminal { flex: 1 1 340px; min-width: min(100%, 340px); max-width: 980px; border: 1px solid #514754; background: #211f20; display: flex; flex-direction: column; }
+.mflasher-terminal { flex: 1 1 340px; min-width: 340px; max-width: 980px; border: 1px solid #514754; background: #211f20; display: flex; flex-direction: column; overflow: hidden; }
 .terminal-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 12px; border-bottom: 1px solid #514754; }
 .terminal-heading h2 { margin: 0; color: #b49bdc; font-size: 12px; letter-spacing: .16em; }
 .terminal-clear { min-height: 30px; padding: 4px 10px; font-size: 10px; letter-spacing: .1em; }
 .terminal-output { flex: 1; overflow: auto; margin: 0; padding: 12px; color: #b9d6c9; background: #171718; font: 12px/1.55 'Share Tech Mono', monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
-@media (max-width: 560px) { .lcd-actions, .pending-actions { flex-direction: column; } .pending-cancel { min-width: 0; } }
+@media (max-width: 560px) { .lcd-actions, .pending-actions { flex-direction: column; } .pending-cancel { min-width: 0; } .mflasher-content { flex-direction: column; max-height: none; } .mflasher-terminal { max-width: 100%; min-width: auto; } }
 </style>

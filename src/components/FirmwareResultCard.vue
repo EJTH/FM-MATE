@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import FirmwareThumbnail from './FirmwareThumbnail.vue'
+import InstallDropdown from './InstallDropdown.vue'
 import type { FirmwareRecord } from '../services/firmwareCatalog'
 
 defineProps<{
   firmware: FirmwareRecord
   busy?: boolean
   canInstall: boolean
+  downloaded?: boolean
+  installedVersions?: string[]
 }>()
-const emit = defineEmits<{ info: []; install: [] }>()
+const emit = defineEmits<{ info: []; install: []; download: []; installVersion: [version: string] }>()
 
 function formatStars(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
@@ -34,7 +37,10 @@ function formatStars(value: unknown) {
     </div>
     <div class="firmware-result-card__actions">
       <button class="outline-button" type="button" @click="emit('info')">INFO</button>
-      <button class="action-button action-button--primary" type="button" :disabled="busy || !canInstall" @click="emit('install')">{{ busy ? 'PREPARING…' : 'INSTALL' }}</button>
+      <div v-if="downloaded" class="firmware-result-card__installed-actions">
+        <InstallDropdown :versions="installedVersions ?? []" @select="emit('installVersion', $event)" />
+      </div>
+      <button v-else class="action-button action-button--primary" type="button" :disabled="busy || !canInstall" @click="emit('download')">{{ busy ? 'PREPARING…' : 'DOWNLOAD' }}</button>
     </div>
   </article>
 </template>
@@ -54,4 +60,7 @@ function formatStars(value: unknown) {
 .firmware-result-card__tags span { padding: 3px 7px; color: #c4b9cc; background: #302d30; border: 1px solid #514754; font: 10px 'Share Tech Mono', monospace; }
 .firmware-result-card__actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: auto; padding: 8px 14px 14px; }
 .firmware-result-card__actions button { min-height: 38px; justify-content: center; padding: 6px 8px; font-size: 11px; }
+.firmware-result-card__installed-actions { min-width: 0; }
+.firmware-result-card__installed-actions .install-dropdown { width: 100%; min-width: 0; }
+.firmware-result-card__installed-actions .install-button { min-height: 38px; }
 </style>

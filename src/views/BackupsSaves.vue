@@ -121,7 +121,7 @@ function saveDeviceBackup() {
 <template>
   <section class="view-panel saves-view">
     <div class="view-heading">
-      <div><p class="eyebrow">DEVICE ARCHIVE</p><h1>Backups / Saves</h1></div>
+      <div><p class="eyebrow">DEVICE ARCHIVE</p><h1>Backups</h1></div>
       <button class="outline-button" type="button" @click="openFirmwareFolder">OPEN FIRMWARE FOLDER</button>
     </div>
     <div class="device-backup-panel">

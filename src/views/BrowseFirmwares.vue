@@ -32,7 +32,7 @@ const sortBy = ref<'name' | 'kind' | 'added' | 'date' | 'stars' | 'installs'>('i
 const sortDescending = ref(true)
 const loading = ref(false)
 const errorMessage = ref('')
-const resultView = ref<'detailed' | 'grid'>('detailed')
+const resultView = ref<'detailed' | 'grid'>('grid')
 const selectedResult = ref<FirmwareRecord | null>(null)
 const tryingId = ref('')
 const firmwareKeepPrompt = ref<FirmwareRecord | null>(null)
@@ -57,8 +57,36 @@ const repositoryLicenseUrl = computed(() => {
   }
 })
 
+const repositoryLicenseDisplay = computed(() => {
+  if (!repositoryLicense.value) return ''
+  
+  // Prefer explicit attribution text if available
+  const attribution = repositoryLicense.value.attribution?.trim()
+  if (attribution) return attribution
+  
+  // Fall back to license name if available
+  const license = repositoryLicense.value.license?.trim()
+  if (license) return `Licensed under ${license}`
+  
+  // If we have a URL but no text, provide generic attribution
+  if (repositoryLicenseUrl.value) return 'View license'
+  
+  return ''
+})
+
+const hasRepositoryLicense = computed(() => !!repositoryLicenseDisplay.value)
+
 watch(sortBy, (field) => {
   sortDescending.value = ['added', 'date', 'stars', 'installs'].includes(field)
+})
+
+watch(resultView, async (view) => {
+  if (isTauri()) {
+    await store.set('resultViewLayout', view)
+    await store.save()
+  } else {
+    localStorage.setItem('fm-mate.resultViewLayout', view)
+  }
 })
 
 async function loadRepository() {
@@ -105,6 +133,26 @@ async function loadDownloadedFirmwares() {
 }
 
 onActivated(loadDownloadedFirmwares)
+
+async function loadViewPreference() {
+  try {
+    if (isTauri()) {
+      const savedView = await store.get<'detailed' | 'grid'>('resultViewLayout')
+      if (savedView === 'detailed' || savedView === 'grid') {
+        resultView.value = savedView
+      }
+    } else {
+      const savedView = localStorage.getItem('fm-mate.resultViewLayout')
+      if (savedView === 'detailed' || savedView === 'grid') {
+        resultView.value = savedView
+      }
+    }
+  } catch {
+    // Use default if loading preference fails
+  }
+}
+
+onActivated(loadViewPreference)
 
 function hasDownloaded(firmware: FirmwareRecord) {
   return downloadedFirmwares.value.some((download) => download.id === firmware.id && download.version === (firmware.version ?? ''))
@@ -347,6 +395,14 @@ const visibleFirmwares = computed(() => {
   <section class="view-panel">
     <div class="view-heading">
       <div><p class="eyebrow">FIRMWARE LIBRARY</p><h1>Browse Firmwares</h1></div>
+      <div class="catalog-attribution-inline">
+        <template v-if="hasRepositoryLicense">
+          <span v-if="repositoryLicenseUrl"><a :href="repositoryLicenseUrl" target="_blank" rel="noreferrer">{{ repositoryLicenseDisplay }}</a></span>
+          <span v-else>{{ repositoryLicenseDisplay }}</span>
+          <span> • </span>
+        </template>
+        <span>Data provided by <a href="https://thefirmwarehub.com/" target="_blank" rel="noreferrer">thefirmwarehub.com</a></span>
+      </div>
     </div>
 
     <div class="toolbar">
@@ -403,8 +459,11 @@ const visibleFirmwares = computed(() => {
         :firmware="firmware"
         :busy="downloadingId === firmware.id"
         :can-install="!downloadingId && (hasDownloaded(firmware) || !!firmware.pkg)"
+        :downloaded="hasDownloaded(firmware)"
+        :installed-versions="installedVersionsFor(firmware)"
         @info="openResultInfo(firmware)"
-        @install="installFromResult(firmware)"
+        @download="downloadFirmware(firmware)"
+        @install-version="installResultVersion(firmware, $event)"
       />
     </div>
     <DetailedResultCard v-if="selectedResult" :firmware="selectedResult" overlay :downloading="downloadingId === selectedResult.id" :downloaded="installedVersionsFor(selectedResult).length > 0" :installed-versions="installedVersionsFor(selectedResult)" :trying="tryingId === selectedResult.id" @download="downloadFirmware(selectedResult)" @try-firmware="tryFirmware(selectedResult)" @info="openResultInfo(selectedResult)" @install-version="installResultVersion(selectedResult, $event)" @close="selectedResult = null" />
@@ -420,16 +479,33 @@ const visibleFirmwares = computed(() => {
       @cancel="keepTriedFirmware"
     />
     <p class="catalog-attribution">
-      <a v-if="repositoryLicense?.attribution && repositoryLicenseUrl" :href="repositoryLicenseUrl" target="_blank" rel="noreferrer">{{ repositoryLicense.attribution }}</a>
-      <span v-else-if="repositoryLicense?.attribution">{{ repositoryLicense.attribution }}</span>
-      <template v-else>Huge thanks to <a href="https://thefirmwarehub.com/" target="_blank" rel="noreferrer">thefirmwarehub.com</a> for providing the data used in the firmware browser!</template>
+      <template v-if="hasRepositoryLicense">
+        <span v-if="repositoryLicenseUrl"><a :href="repositoryLicenseUrl" target="_blank" rel="noreferrer">{{ repositoryLicenseDisplay }}</a></span>
+        <span v-else>{{ repositoryLicenseDisplay }}</span>
+        <span> • </span>
+      </template>
+      <span>Data provided by <a href="https://thefirmwarehub.com/" target="_blank" rel="noreferrer">thefirmwarehub.com</a></span>
     </p>
   </section>
 </template>
 
 <style>
+.view-heading { position: relative; display: flex; justify-content: space-between; align-items: flex-start; }
+.catalog-attribution-inline { position:absolute; top:0px; right: 0px;font-size: 11px; color: #aaa09a; white-space: nowrap; }
+.catalog-attribution-inline a { color: #bda5df; text-decoration: none; }
+.catalog-attribution-inline a:hover { color: #e1cff8; text-decoration: underline; }
+.toolbar { position: sticky; top: 120px; z-index: 10; background: rgb(28 25 24 / 95%); backdrop-filter: blur(4px); padding: 0; margin: 0; border-bottom: 1px solid #48413f; }
 .catalog-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 18px; min-height: 24px; margin: -7px 0 8px; color: #8f8580; font: 11px 'Share Tech Mono', monospace; letter-spacing: .04em; }
-.browse-options { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 20px; margin: 0 0 14px; padding: 10px 12px; background: rgb(40 37 36 / 55%); border: 1px solid #48413f; }
+.browse-options { position: sticky; top: 164px; z-index: 9; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 20px; margin: 0 0 14px; padding: 10px 12px; background: rgb(40 37 36 / 95%); border: 1px solid #48413f; border-top: 0; backdrop-filter: blur(4px); }
+@media (max-width: 1000px) {
+  .toolbar { top: 164px; } 
+  .browse-options { top: 208px;}
+}
+@media (max-width: 450px) {
+  .toolbar { top: 200px; } 
+  .browse-options { top: 248px;}
+}
+
 .kind-filters { min-width: 0; margin: 0; padding: 0; border: 0; }
 .kind-filters > div { display: grid; min-width: 0; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); align-items: center; gap: 8px 0px; }
 .kind-filters legend { margin: 0 0 7px; color: #9b8aa8; font-size: 10px; font-weight: 700; letter-spacing: .13em; }

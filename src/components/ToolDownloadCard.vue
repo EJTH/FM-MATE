@@ -31,5 +31,5 @@ const emit = defineEmits<{ action: [] }>()
 .tool-download-card__content { min-width: 0; }.tool-download-card h3 { margin: 0 0 3px; color: #e3dcd2; font-size: 16px; font-weight: 700; }.tool-download-card p { margin: 0 0 5px; color: #a49b97; font: 12px/1.4 'Share Tech Mono', monospace; }
 .tool-download-card a { color: #a995bf; font: 11px 'Share Tech Mono', monospace; overflow-wrap: anywhere; }.tool-download-card small { display: block; margin-top: 5px; color: #72e7c3; font: 10px 'Share Tech Mono', monospace; }
 .tool-download-card__button { flex: 0 0 auto; min-width: 150px; }.tool-download-card__button:disabled { opacity: .55; cursor: wait; }
-@media (max-width: 650px) { .tool-download-card { align-items: flex-start; flex-direction: column; }.tool-download-card__button { width: 100%; } }
+@media (max-width: 450px) { .tool-download-card { align-items: flex-start; flex-direction: column; }.tool-download-card__button { width: 100%; } }
 </style>
