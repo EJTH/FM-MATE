@@ -2,22 +2,31 @@
 
 FM-MATE is a modern, user-friendly desktop application for managing FM-1 device firmwares with an intuitive app store-like experience. Download, flash, backup, and seamlessly switch between firmware versions—all offline!
 
-## 📹 Demo
+## Demo
 ![FM-MATE Demo](docs/demo.webp)
 
-## ✨ Features
+## Quick Install
 
-- **📥 Download Firmwares**: Browse and download firmware versions for your FM-1 device directly within the app
-- **⚡ Flash Firmware**: Flash downloaded firmwares to your device with a single click
-- **💾 Backup & Save**: Create and manage backups of your device's current firmware and saves
-- **🔄 Switch Versions**: Easily switch between different firmware versions you've downloaded
-- **🎮 Try in Emulator**: Test firmware versions locally using FM1-Emu before installing them on your device
-- **🖥️ Emulator Support**: Open firmwares and saves directly in the emulator for safe experimentation
-- **📡 Offline Operation**: Manage your firmwares without requiring internet connectivity after initial downloads
-- **🎨 Intuitive UI**: Beautiful, modern interface designed for ease of use
-- **💻 Cross-Platform**: Available for Windows and macOS
+Download the latest version for your platform:
 
-## 🚀 Getting Started
+- **[Windows MSI Installer](../../releases/latest)** - Windows x64
+- **[macOS DMG](../../releases/latest)** - Apple Silicon (M1+)
+
+Visit the [releases page](../../releases) to download the latest stable version.
+
+## Features
+
+- **Download Firmwares**: Browse and download firmware versions for your FM-1 device directly within the app
+- **Flash Firmware**: Flash downloaded firmwares to your device with a single click
+- **Backup & Save**: Create and manage backups of your device's current firmware and saves
+- **Switch Versions**: Easily switch between different firmware versions you've downloaded
+- **Try in Emulator**: Test firmware versions locally using FM1-Emu before installing them on your device
+- **Emulator Support**: Open firmwares and saves directly in the emulator for safe experimentation
+- **Offline Operation**: Manage your firmwares without requiring internet connectivity after initial downloads
+- **Intuitive UI**: Beautiful, modern interface designed for ease of use
+- **Cross-Platform**: Available for Windows and macOS
+
+## Getting Started
 
 ### Prerequisites
 
@@ -52,7 +61,7 @@ FM-MATE is a modern, user-friendly desktop application for managing FM-1 device 
 
 Pre-built binaries are available as artifacts from the [GitHub Actions workflows](../../actions). Visit the **Build** workflow to download the latest Windows MSI/NSIS installer or macOS DMG.
 
-## 📋 Project Structure
+## Project Structure
 
 ```
 FM-MATE/
@@ -70,7 +79,7 @@ FM-MATE/
 └── vite.config.ts          # Vite configuration
 ```
 
-## 🛠️ Development
+## Development
 
 ### Available Scripts
 
@@ -93,7 +102,7 @@ FM-MATE/
 - [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) extension
 - [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer) extension
 
-## 📦 Building
+## Building
 
 FM-MATE is built using GitHub Actions. The build workflow:
 
@@ -104,15 +113,15 @@ FM-MATE is built using GitHub Actions. The build workflow:
 
 **Note**: Builds are currently not code-signed or notarized.
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
-## 📧 Support
+## Support
 
 For issues, feature requests, or questions, please open an issue on the [GitHub repository](../../issues).
 
