@@ -166,7 +166,7 @@ jobs:
 
       - name: Cleanup certificate (Windows only)
         if: matrix.platform == 'windows-x64' && always()
-        run: Remove-Item -Force certificate.pfx
+        run: Remove-Item -Force certificate.pfx -ErrorAction SilentlyContinue
 
       - uses: actions/upload-artifact@v4
         with:
