@@ -3,11 +3,7 @@
 FM-MATE is a modern, user-friendly desktop application for managing FM-1 device firmwares with an intuitive app store-like experience. Download, flash, backup, and seamlessly switch between firmware versions—all offline!
 
 ## 📹 Demo
-
-<video width="100%" controls style="border-radius: 8px; margin: 20px 0;">
-  <source src="docs/demovideo.mp4" type="video/mp4">
-  Your browser does not support the video tag.
-</video>
+![FM-MATE Demo](docs/demo.webp)
 
 ## ✨ Features
 
