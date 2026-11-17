@@ -1,6 +1,10 @@
 # FM-MATE
 
-FM-MATE is a modern, user-friendly desktop application for managing FM-1 device firmwares with an intuitive app store-like experience. Download, flash, backup, and seamlessly switch between firmware versions—all offline!
+FM-MATE is a modern, user-friendly desktop application for managing FM-1 device firmwares with an intuitive app store-like experience. Download, flash, backup, and seamlessly switch between firmware versions—all offline! 
+
+Early beta, "vibe slop" - But I tested it extensively with no issues on windows, osx test comming soon, then real release.
+
+Packages will be signed if there is interest in the project (and especially if someone donates towards it!). I need an apple developer account and I am broke asf.
 
 ## Demo
 
@@ -116,7 +120,7 @@ FM-MATE is built using GitHub Actions. The build workflow:
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+MIT ([LICENSE](LICENSE)). Bundled files and their licenses: [NOTICE.md](NOTICE.md)
 
 ## Contributing
 
@@ -126,6 +130,8 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 For issues, feature requests, or questions, please open an issue on the [GitHub repository](../../issues).
 
+## Big thanks to @jvitkauskas (M-Flasher) & joakimeriksson (FM1-Emu)
+
 ---
 
-**Made with ❤️ using Tauri + Vue + TypeScript**
+**Made with ❤️ using Tauri + Rust + Vue + TypeScript**
