@@ -7,6 +7,7 @@ use tauri::{AppHandle, Manager};
 use zip::ZipArchive;
 use crate::ensure_safe_name;
 use crate::firmwarehub::make_http_client;
+use std::process::Command;
 
 use std::time::UNIX_EPOCH;
  use std::time::SystemTime;
