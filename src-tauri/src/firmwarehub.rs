@@ -1,5 +1,7 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde::Serialize;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -10,6 +12,26 @@ use tauri::{AppHandle, Manager};
 use crate::{ensure_safe_name, firmware_root};
 
 static EDITOR_SERVER: OnceLock<Mutex<Option<(String, Arc<RwLock<PathBuf>>)>>> = OnceLock::new();
+static THUMBNAIL_CACHE_GENERATION: Mutex<u64> = Mutex::new(0);
+
+fn thumbnail_cache_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app.path().app_cache_dir()
+        .map_err(|error| format!("Could not locate thumbnail cache: {error}"))?
+        .join("thumbnails"))
+}
+
+#[tauri::command]
+pub(super) fn clear_thumbnail_cache(app: AppHandle) -> Result<(), String> {
+    let cache_dir = thumbnail_cache_dir(&app)?;
+    let mut generation = THUMBNAIL_CACHE_GENERATION.lock()
+        .map_err(|error| format!("Could not lock thumbnail cache: {error}"))?;
+    *generation = generation.wrapping_add(1);
+    match std::fs::remove_dir_all(cache_dir) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!("Could not clear thumbnail cache: {error}")),
+    }
+}
 
 pub(crate) fn make_http_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
@@ -24,17 +46,12 @@ pub(super) async fn get_firmware_thumbnail(
     app: AppHandle,
     id: String,
     image_url: String,
-    is_card: bool,
+    version: String,
 ) -> Result<String, String> {
     ensure_safe_name(&id)?;
     let url = reqwest::Url::parse(&image_url).map_err(|_| "Invalid thumbnail URL.".to_string())?;
-    if url.scheme() != "https"
-        || !matches!(
-            url.host_str(),
-            Some("thefirmwarehub.com" | "www.thefirmwarehub.com")
-        )
-    {
-        return Err("Thumbnails must be hosted by the Firmware Hub over HTTPS.".into());
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err("Thumbnail URLs must use HTTP or HTTPS.".into());
     }
     let extension = url
         .path_segments()
@@ -50,21 +67,24 @@ pub(super) async fn get_firmware_thumbnail(
         "jpg" | "jpeg" => "image/jpeg",
         _ => return Err("Unsupported thumbnail image type.".into()),
     };
-    let cache_dir = app
-        .path()
-        .app_cache_dir()
-        .map_err(|error| format!("Could not locate thumbnail cache: {error}"))?
-        .join("thumbnails");
-    std::fs::create_dir_all(&cache_dir)
-        .map_err(|error| format!("Could not create thumbnail cache: {error}"))?;
-    let image_path = cache_dir.join(format!(
-        "{id}{}{extension}",
-        if is_card { "-card." } else { "." }
-    ));
+    let cache_dir = thumbnail_cache_dir(&app)?;
+    let mut hasher = DefaultHasher::new();
+    url.as_str().hash(&mut hasher);
+    version.hash(&mut hasher);
+    let image_path = cache_dir.join(format!("{id}-{:016x}.{extension}", hasher.finish()));
 
-    let image = if image_path.is_file() {
-        std::fs::read(&image_path)
-            .map_err(|error| format!("Could not read cached thumbnail: {error}"))?
+    let (cached_image, generation) = {
+        let generation = THUMBNAIL_CACHE_GENERATION.lock()
+            .map_err(|error| format!("Could not lock thumbnail cache: {error}"))?;
+        let image = match std::fs::read(&image_path) {
+            Ok(image) => Some(image),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(format!("Could not read cached thumbnail: {error}")),
+        };
+        (image, *generation)
+    };
+    let image = if let Some(image) = cached_image {
+        image
     } else {
         let response = make_http_client()?
             .get(url)
@@ -89,8 +109,16 @@ pub(super) async fn get_firmware_thumbnail(
         if bytes.len() > 4 * 1024 * 1024 || !valid_image {
             return Err("The thumbnail response is not a valid image.".into());
         }
-        std::fs::write(&image_path, &bytes)
-            .map_err(|error| format!("Could not cache thumbnail: {error}"))?;
+        {
+            let current_generation = THUMBNAIL_CACHE_GENERATION.lock()
+                .map_err(|error| format!("Could not lock thumbnail cache: {error}"))?;
+            if *current_generation == generation {
+                std::fs::create_dir_all(&cache_dir)
+                    .map_err(|error| format!("Could not create thumbnail cache: {error}"))?;
+                std::fs::write(&image_path, &bytes)
+                    .map_err(|error| format!("Could not cache thumbnail: {error}"))?;
+            }
+        }
         bytes.to_vec()
     };
 
@@ -174,7 +202,7 @@ pub(super) async fn download_firmware(
         .map_err(|error| format!("Could not save firmware info: {error}"))?;
 
     if let (Ok(client), Ok(url)) = (make_http_client(), reqwest::Url::parse(&thumbnail_url)) {
-        if url.scheme() == "https" && url.host_str() == Some("thefirmwarehub.com") {
+        if matches!(url.scheme(), "http" | "https") {
             if let Ok(response) = client.get(url).send().await {
                 if response.status().is_success() {
                     if let Ok(bytes) = response.bytes().await {
@@ -194,7 +222,21 @@ pub(super) async fn download_firmware(
                             if let Some(extension) = extension {
                                 let thumbnail_path =
                                     firmware_dir.join(format!("thumbnail.{extension}"));
-                                let _ = std::fs::write(thumbnail_path, bytes);
+                                match std::fs::write(thumbnail_path, bytes) {
+                                    Ok(()) => {
+                                        for old_extension in ["webp", "png", "jpg"] {
+                                            if old_extension != extension {
+                                                let old_path = firmware_dir.join(format!("thumbnail.{old_extension}"));
+                                                if old_path.is_file() {
+                                                    if let Err(error) = std::fs::remove_file(old_path) {
+                                                        eprintln!("Could not remove old firmware thumbnail: {error}");
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Err(error) => eprintln!("Could not save firmware thumbnail: {error}"),
+                                }
                             }
                         }
                     }

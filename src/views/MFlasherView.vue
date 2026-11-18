@@ -4,10 +4,10 @@ import { invoke, isTauri } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import LcdDisplay from '../components/LcdDisplay.vue'
 import ConfirmationDialog from '../components/ConfirmationDialog.vue'
-import type { MFlasherLcdState, MFlasherRequest } from '../types/flasher'
+import type { MFlasherLcdState, MFlasherRequest, MFlasherRequestPayload } from '../types/flasher'
 
 const props = defineProps<{ pendingAction?: MFlasherRequest | null }>()
-const emit = defineEmits<{ actionComplete: [requestId: number]; lcdState: [state: MFlasherLcdState] }>()
+const emit = defineEmits<{ actionComplete: [requestId: number]; lcdState: [state: MFlasherLcdState]; openFlasher: [request: MFlasherRequestPayload] }>()
 
 interface FoundDevice { output: string; deviceFound: boolean; downloadMode: boolean; deviceName: string | null }
 interface BackupOption { key: string; firmwareId: string; firmwareName: string; version: string; model: string }
@@ -69,7 +69,7 @@ const displayTitle = computed(() => {
   const board = raw.match(/SMK-37|FM-1/i)?.[0]?.toUpperCase() || selectedBackupOption.value?.model || ''
   const firmware = infoFirmware.value || matchingFirmware.value?.name || (detected.value.downloadMode ? selectedBackupOption.value?.firmwareName : raw.replace(/\s*\([^)]*\).*$/, '').replace(/\s+(fm-1|smk-37).*$/i, '').trim())
   const request = props.pendingAction
-  if (request && request.type !== 'backup') {
+  if (request && request.type !== 'backup' && request.type !== 'flash-bootloader') {
     const target = request.type === 'flash-save' ? request.save.firmwareName : request.firmwareName
     return [infoModel.value || board, `${firmware || 'UNKNOWN'} -> ${target}`].filter(Boolean).join(' ')
   }
@@ -86,6 +86,7 @@ const pendingActionLabel = computed(() => {
   const request = props.pendingAction
   if (!request) return ''
   if (request.type === 'backup') return 'PERFORM BACKUP'
+  if (request.type === 'flash-bootloader') return 'FLASH M-BOOTLOADER'
   if (request.type === 'switch-firmware') {
     if (request.automaticallyBackup) return 'BACKUP & FLASH'
     return switchStage.value === 'flash' ? 'FLASH FIRMWARE' : 'BACKUP BEFORE FLASH?'
@@ -96,6 +97,7 @@ const pendingActionLabel = computed(() => {
 const pendingActionDetail = computed(() => {
   const request = props.pendingAction
   if (!request) return ''
+  if (request.type === 'flash-bootloader') return 'KEEP DEVICE CONNECTED WHILE FLASHING'
   if (request.type === 'flash-save') return request.save.fileName
   if (request.type === 'backup') return selectedBackupOption.value ? `${selectedBackupOption.value.firmwareName} ${selectedBackupOption.value.version}` : 'Select firmware and version below'
   if (request.type === 'switch-firmware') return `${request.firmwareName} ${request.version}`
@@ -105,6 +107,7 @@ const lcdMessage = computed(() => {
   if (busyAction.value === 'backup') return backupProgress.value === null ? 'BACKUP IN PROGRESS' : `BACKUP ${backupProgress.value}%`
   if (busyAction.value === 'firmware') return flashProgress.value === null ? 'FIRMWARE FLASHING' : `FLASHING ${flashProgress.value}%`
   if (busyAction.value === 'flash') return flashProgress.value === null ? 'BACKUP RESTORING' : `RESTORING ${flashProgress.value}%`
+  if (busyAction.value === 'bootloader') return 'FLASHING BOOTLOADER'
   if (lcdStatusError.value) return `ERROR: ${lcdStatusError.value}`
   if (lcdCompletion.value) return lcdCompletion.value
   return props.pendingAction
@@ -124,6 +127,7 @@ const lcdHint = computed(() => {
   if (busyAction.value === 'backup') return 'READING FLASH DATA...'
   if (busyAction.value === 'firmware') return 'FLASHING FIRMWARE...'
   if (busyAction.value === 'flash') return 'RESTORING BACKUP...'
+  if (busyAction.value === 'bootloader') return 'KEEP DEVICE CONNECTED...'
   if (props.pendingAction && detected.value?.deviceFound) return pendingActionDetail.value
   return detected.value?.downloadMode ? 'RESTART DEVICE. PRESS THE REBOOT BUTTON BELOW' : 'HOLD SEQ REC (SMK-37) OR REC (FM-1) WHILE SWITCHING ON'
 })
@@ -174,9 +178,11 @@ async function showPendingCommand(request: MFlasherRequest) {
   shownRequestId = request.requestId
   if (request.type === 'switch-firmware') switchStage.value = 'choose'
   try {
-    const root = await invoke<string>('get_firmware_folder_path')
+    const root = request.type === 'flash-bootloader' ? '' : await invoke<string>('get_firmware_folder_path')
     let command: string
-    if (request.type === 'backup') {
+    if (request.type === 'flash-bootloader') {
+      command = 'm-flasher bootloader --yes'
+    } else if (request.type === 'backup') {
       const target = selectedBackupOption.value
       if (!target) throw new Error('Select an installed firmware version before performing a backup.')
       const savesFolder = nativePath(root, target.firmwareId, target.version, 'saves')
@@ -343,8 +349,7 @@ async function updateBootloader() {
           cancelLabel: 'CANCEL',
           onConfirm: () => {
             confirmationDialog.value = null
-            lastError.value = 'Continuing with m-bootloader already installed.'
-            lcdStatusError.value = lastError.value
+            emit('openFlasher', { type: 'flash-bootloader' })
           },
         }
       } else {
@@ -355,8 +360,7 @@ async function updateBootloader() {
           cancelLabel: 'CANCEL',
           onConfirm: () => {
             confirmationDialog.value = null
-            lastError.value = 'User chose to install m-bootloader. (Feature not yet implemented)'
-            lcdStatusError.value = lastError.value
+            emit('openFlasher', { type: 'flash-bootloader' })
           },
         }
       }
@@ -515,7 +519,12 @@ async function handlePendingAction(request: MFlasherRequest) {
   lastError.value = ''
   let unlisten: (() => void) | undefined
   try {
-    if (request.type === 'flash-firmware') {
+    if (request.type === 'flash-bootloader') {
+      busyAction.value = 'bootloader'
+      const output = await invoke<string>('m_flasher_flash_bootloader')
+      appendTerminal('bootloader --yes', output)
+      showLcdCompletion('BOOTLOADER FLASHED!')
+    } else if (request.type === 'flash-firmware') {
       await flashFirmwareRequest(request)
     } else if (request.type === 'flash-save') {
       busyAction.value = 'flash'
@@ -564,6 +573,9 @@ function activateView() {
 }
 
 onActivated(activateView)
+watch(() => props.pendingAction, (request) => {
+  if (request?.type === 'flash-bootloader') void showPendingCommand(request)
+})
 
 function confirmPendingAction() {
   if (props.pendingAction) void handlePendingAction(props.pendingAction)
@@ -641,6 +653,7 @@ function cancelPendingAction() {
     :confirmLabel="confirmationDialog.confirmLabel"
     :cancelLabel="confirmationDialog.cancelLabel"
     @confirm="confirmationDialog.onConfirm"
+    @secondary="confirmationDialog = null"
     @cancel="confirmationDialog = null"
   />
 </template>

@@ -6,6 +6,8 @@ import type { FirmwareRecord } from '../services/firmwareCatalog'
 
 const props = defineProps<{
   firmware: FirmwareRecord
+  repositoryUrl: string
+  updateAvailable?: boolean
   overlay?: boolean
   downloading?: boolean
   downloaded?: boolean
@@ -98,7 +100,7 @@ function openFromKeyboard(event: KeyboardEvent) {
         <span class="detailed-result-titlebar__name">{{ firmware.name }}</span>
         <button type="button" aria-label="Close firmware details" @click="emit('close')">×</button>
       </header>
-      <button class="detailed-result-card__image-button" type="button" aria-label="Firmware image" @click="emit('info')"><FirmwareThumbnail :id="firmware.id" :card="firmware.card" :alt="`${firmware.name} thumbnail`" /></button>
+      <button class="detailed-result-card__image-button" type="button" aria-label="Firmware image" @click="emit('info')"><FirmwareThumbnail :id="firmware.id" :card="firmware.card" :version="firmware.version" :repository-url="repositoryUrl" :alt="`${firmware.name} thumbnail`" /></button>
       <div class="detailed-result-card__main">
         <div class="detailed-result-card__heading">
           <div><h2>{{ firmware.name }}</h2><p>{{ firmware.author || firmware.repo || firmware.id }}</p></div>
@@ -140,7 +142,7 @@ function openFromKeyboard(event: KeyboardEvent) {
     </article>
   </div>
   <article v-else class="detailed-result-card detailed-result-card--clickable" tabindex="0" :aria-label="`Open details for ${firmware.name}`" @click="openFromCard" @keydown="openFromKeyboard">
-    <button class="detailed-result-card__image-button" type="button" aria-label="Open firmware information" @click="emit('info')"><FirmwareThumbnail :id="firmware.id" :card="firmware.card" :alt="`${firmware.name} thumbnail`" /></button>
+    <button class="detailed-result-card__image-button" type="button" :aria-label="updateAvailable ? 'Open firmware information - New version!' : 'Open firmware information'" @click="emit('info')"><FirmwareThumbnail :id="firmware.id" :card="firmware.card" :version="firmware.version" :repository-url="repositoryUrl" :alt="`${firmware.name} thumbnail`" :update-available="updateAvailable" /></button>
     <div class="detailed-result-card__main">
       <div class="detailed-result-card__heading">
         <div><h2>{{ firmware.name }}</h2><p>{{ firmware.author || firmware.repo || firmware.id }}</p></div>

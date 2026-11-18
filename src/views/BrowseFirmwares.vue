@@ -5,7 +5,7 @@ import { LazyStore } from '@tauri-apps/plugin-store'
 import DetailedResultCard from '../components/DetailedResultCard.vue'
 import FirmwareResultCard from '../components/FirmwareResultCard.vue'
 import ConfirmationDialog from '../components/ConfirmationDialog.vue'
-import { loadFirmwareCatalog } from '../services/firmwareCatalog'
+import { firmwareThumbnailUrls, isNewerFirmwareVersion, loadFirmwareCatalog } from '../services/firmwareCatalog'
 import type { FirmwareCatalogLicense, FirmwareRecord } from '../services/firmwareCatalog'
 import type { MFlasherRequestPayload } from '../types/flasher'
 
@@ -46,6 +46,14 @@ const downloadedFirmwares = ref<DownloadedFirmware[]>([])
 const downloadingId = ref('')
 const downloadMessage = ref('')
 const downloadIsError = ref(false)
+const catalogSource = computed(() => {
+  try {
+    const url = new URL(repositoryUrl.value)
+    return ['https:', 'http:'].includes(url.protocol) ? { href: `${url.origin}/`, label: url.host } : null
+  } catch {
+    return null
+  }
+})
 const repositoryLicenseUrl = computed(() => {
   const value = repositoryLicense.value?.url
   if (!value) return ''
@@ -166,6 +174,12 @@ function installedVersionsFor(firmware: FirmwareRecord) {
     .sort((a, b) => b.localeCompare(a, undefined, { numeric: true, sensitivity: 'base' }))
 }
 
+function hasAvailableUpdate(firmware: FirmwareRecord) {
+  if (typeof firmware.version !== 'string' || !firmware.version.trim()) return false
+  const newestInstalled = installedVersionsFor(firmware)[0]
+  return !!newestInstalled && isNewerFirmwareVersion(firmware.version, newestInstalled)
+}
+
 async function downloadFirmware(firmware: FirmwareRecord, installAfterDownload = false): Promise<boolean> {
   if (!firmware.pkg || downloadingId.value) return false
   downloadingId.value = firmware.id
@@ -177,9 +191,7 @@ async function downloadFirmware(firmware: FirmwareRecord, installAfterDownload =
     const fileName = decodeURIComponent(packageUrl.pathname.split('/').pop() ?? '')
     if (!fileName) throw new Error('The repository entry does not include a package file name.')
     const downloadedAt = new Date().toISOString()
-    const thumbnailUrl = firmware.card?.trim()
-      ? new URL(firmware.card, 'https://thefirmwarehub.com/').toString()
-      : `https://thefirmwarehub.com/img/w0/${encodeURIComponent(firmware.id)}.webp`
+    const thumbnailUrl = firmwareThumbnailUrls(firmware.id, firmware.card, repositoryUrl.value)[0]
 
     let path: string
     if (isTauri()) {
@@ -386,9 +398,9 @@ const visibleFirmwares = computed(() => {
         <template v-if="hasRepositoryLicense">
           <span v-if="repositoryLicenseUrl"><a :href="repositoryLicenseUrl" target="_blank" rel="noreferrer">{{ repositoryLicenseDisplay }}</a></span>
           <span v-else>{{ repositoryLicenseDisplay }}</span>
-          <span> • </span>
+          <span v-if="catalogSource"> • </span>
         </template>
-        <span>Data provided by <a href="https://thefirmwarehub.com/" target="_blank" rel="noreferrer">thefirmwarehub.com</a></span>
+        <span v-if="catalogSource">Data provided by <a :href="catalogSource.href" target="_blank" rel="noreferrer">{{ catalogSource.label }}</a></span>
       </div>
     </div>
 
@@ -437,13 +449,15 @@ const visibleFirmwares = computed(() => {
     <div v-else-if="!repositoryUrl" class="catalog-state"><span class="empty-mark">⌁</span><h2>Set a firmware repository</h2><p>Add the manifest URL in Settings to browse releases.</p><button class="outline-button" type="button" @click="emit('open-settings')">OPEN SETTINGS</button></div>
     <div v-else-if="visibleFirmwares.length === 0" class="catalog-state"><span class="empty-mark">⌕</span><h2>{{ firmwares.length ? 'No matching firmware' : 'No firmware found' }}</h2><p>{{ firmwares.length ? 'Try another search or device filter.' : 'The repository has no valid firmware entries.' }}</p></div>
     <div v-else-if="resultView === 'detailed'" class="firmware-list" aria-label="Firmware releases">
-      <DetailedResultCard v-for="firmware in visibleFirmwares" :key="firmware.id" :firmware="firmware" :downloading="downloadingId === firmware.id" :downloaded="installedVersionsFor(firmware).length > 0" :installed-versions="installedVersionsFor(firmware)" :trying="tryingId === firmware.id" @download="downloadFirmware(firmware)" @try-firmware="tryFirmware(firmware)" @info="openResultInfo(firmware)" @install-version="installResultVersion(firmware, $event)" />
+      <DetailedResultCard v-for="firmware in visibleFirmwares" :key="firmware.id" :firmware="firmware" :repository-url="repositoryUrl" :update-available="hasAvailableUpdate(firmware)" :downloading="downloadingId === firmware.id" :downloaded="installedVersionsFor(firmware).length > 0" :installed-versions="installedVersionsFor(firmware)" :trying="tryingId === firmware.id" @download="downloadFirmware(firmware)" @try-firmware="tryFirmware(firmware)" @info="openResultInfo(firmware)" @install-version="installResultVersion(firmware, $event)" />
     </div>
     <div v-else class="firmware-grid" aria-label="Firmware releases">
       <FirmwareResultCard
         v-for="firmware in visibleFirmwares"
         :key="firmware.id"
         :firmware="firmware"
+        :repository-url="repositoryUrl"
+        :update-available="hasAvailableUpdate(firmware)"
         :busy="downloadingId === firmware.id"
         :can-install="!downloadingId && (hasDownloaded(firmware) || !!firmware.pkg)"
         :downloaded="hasDownloaded(firmware)"
@@ -453,7 +467,7 @@ const visibleFirmwares = computed(() => {
         @install-version="installResultVersion(firmware, $event)"
       />
     </div>
-    <DetailedResultCard v-if="selectedResult" :firmware="selectedResult" overlay :downloading="downloadingId === selectedResult.id" :downloaded="installedVersionsFor(selectedResult).length > 0" :installed-versions="installedVersionsFor(selectedResult)" :trying="tryingId === selectedResult.id" @download="downloadFirmware(selectedResult)" @try-firmware="tryFirmware(selectedResult)" @info="openResultInfo(selectedResult)" @install-version="installResultVersion(selectedResult, $event)" @close="selectedResult = null" />
+    <DetailedResultCard v-if="selectedResult" :firmware="selectedResult" :repository-url="repositoryUrl" overlay :downloading="downloadingId === selectedResult.id" :downloaded="installedVersionsFor(selectedResult).length > 0" :installed-versions="installedVersionsFor(selectedResult)" :trying="tryingId === selectedResult.id" @download="downloadFirmware(selectedResult)" @try-firmware="tryFirmware(selectedResult)" @info="openResultInfo(selectedResult)" @install-version="installResultVersion(selectedResult, $event)" @close="selectedResult = null" />
     <ConfirmationDialog
       v-if="firmwareKeepPrompt"
       title="KEEP TEST FIRMWARE?"
@@ -469,9 +483,9 @@ const visibleFirmwares = computed(() => {
       <template v-if="hasRepositoryLicense">
         <span v-if="repositoryLicenseUrl"><a :href="repositoryLicenseUrl" target="_blank" rel="noreferrer">{{ repositoryLicenseDisplay }}</a></span>
         <span v-else>{{ repositoryLicenseDisplay }}</span>
-        <span> • </span>
+        <span v-if="catalogSource"> • </span>
       </template>
-      <span>Data provided by <a href="https://thefirmwarehub.com/" target="_blank" rel="noreferrer">thefirmwarehub.com</a></span>
+      <span v-if="catalogSource">Data provided by <a :href="catalogSource.href" target="_blank" rel="noreferrer">{{ catalogSource.label }}</a></span>
     </p>
   </section>
 </template>

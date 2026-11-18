@@ -2,13 +2,14 @@ use flate2::read::GzDecoder;
 use serde::{Deserialize, Serialize};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 use tar::Archive as TarArchive;
 use tauri::{AppHandle, Manager};
 use zip::ZipArchive;
 use crate::ensure_safe_name;
 use crate::firmwarehub::make_http_client;
 
+use std::time::UNIX_EPOCH;
+ use std::time::SystemTime;
 #[derive(Deserialize)]
 struct GithubRelease {
     tag_name: String,

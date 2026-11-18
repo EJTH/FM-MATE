@@ -4,11 +4,12 @@ import { invoke, isTauri } from '@tauri-apps/api/core'
 import { LazyStore } from '@tauri-apps/plugin-store'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import FirmwareThumbnail from '../components/FirmwareThumbnail.vue'
+import NewVersionBanner from '../components/NewVersionBanner.vue'
 import FirmwareDetails from '../components/FirmwareDetails.vue'
 import InstallDropdown from '../components/InstallDropdown.vue'
 import ConfirmationDialog from '../components/ConfirmationDialog.vue'
 import type { InstalledFirmware, InstalledVersion } from '../types/firmware'
-import { loadFirmwareCatalog } from '../services/firmwareCatalog'
+import { firmwareThumbnailUrls, getRepositoryUrl, isNewerFirmwareVersion, loadFirmwareCatalog } from '../services/firmwareCatalog'
 import type { FirmwareRecord } from '../services/firmwareCatalog'
 import type { MFlasherRequestPayload } from '../types/flasher'
 
@@ -134,7 +135,9 @@ async function activateDownloads() {
 onActivated(activateDownloads)
 
 async function loadCatalog() {
+  catalogRepositoryUrl.value = ''
   try {
+    catalogRepositoryUrl.value = await getRepositoryUrl()
     const catalog = await loadFirmwareCatalog()
     catalogFirmwares.value = catalog.firmwares
     catalogRepositoryUrl.value = catalog.repositoryUrl
@@ -155,7 +158,7 @@ function availableUpdate(firmware: InstalledFirmware) {
   const newestInstalled = firmware.installedVersions
     .map((item) => item.version)
     .sort((a, b) => b.localeCompare(a, undefined, { numeric: true, sensitivity: 'base' }))[0]
-  if (!newestInstalled || latest.version.localeCompare(newestInstalled, undefined, { numeric: true, sensitivity: 'base' }) <= 0) return null
+  if (!newestInstalled || !isNewerFirmwareVersion(latest.version, newestInstalled)) return null
   return latest
 }
 
@@ -274,9 +277,7 @@ async function downloadUpdate(firmware: InstalledFirmware) {
     const fileName = decodeURIComponent(packageUrl.pathname.split('/').pop() ?? '')
     if (!fileName) throw new Error('The repository entry does not include a package file name.')
     const downloadedAt = new Date().toISOString()
-    const thumbnailUrl = typeof update.card === 'string' && update.card.trim()
-      ? new URL(update.card, 'https://thefirmwarehub.com/').toString()
-      : `https://thefirmwarehub.com/img/w0/${encodeURIComponent(update.id)}.webp`
+    const thumbnailUrl = firmwareThumbnailUrls(update.id, update.card, catalogRepositoryUrl.value)[0]
     if (isTauri()) {
       await invoke<string>('download_firmware', {
         url: packageUrl.toString(),
@@ -373,10 +374,11 @@ async function installFirmware(firmware: InstalledFirmware, version: string) {
     <div v-else-if="loadError" class="library-state"><h2>Could not read installed firmwares</h2><p>Try refreshing the firmware folder scan.</p></div>
     <div v-else-if="!firmwares.length" class="library-state"><span class="empty-mark">↓</span><h2>No firmware installed</h2><p>Downloaded firmware packages will appear here.</p></div>
     <div v-else class="installed-grid">
-      <article v-for="firmware in sortedFirmwares" :key="firmware.id" class="installed-card" tabindex="0" :aria-label="`Open details for ${firmware.name}`" @click="selectedFirmware = firmware" @keydown.enter.self="selectedFirmware = firmware" @keydown.space.prevent.self="selectedFirmware = firmware">
+      <article v-for="firmware in sortedFirmwares" :key="firmware.id" class="installed-card" tabindex="0" :aria-label="`Open details for ${firmware.name}${availableUpdate(firmware) ? ' - New version!' : ''}`" @click="selectedFirmware = firmware" @keydown.enter.self="selectedFirmware = firmware" @keydown.space.prevent.self="selectedFirmware = firmware">
         <div class="installed-card__thumbnail">
-          <img v-if="firmware.thumbnailData" :src="firmware.thumbnailData" :alt="`${firmware.name} thumbnail`" />
-          <FirmwareThumbnail v-else :id="firmware.id" :alt="`${firmware.name} thumbnail`" />
+          <img v-if="firmware.thumbnailData && !availableUpdate(firmware)" :src="firmware.thumbnailData" :alt="`${firmware.name} thumbnail`" />
+          <FirmwareThumbnail v-else :id="firmware.id" :card="availableUpdate(firmware)?.card" :version="availableUpdate(firmware)?.version || firmware.installedVersions[0]?.version" :fallback-data="firmware.thumbnailData" :repository-url="catalogRepositoryUrl" :alt="`${firmware.name} thumbnail`" />
+          <NewVersionBanner v-if="availableUpdate(firmware)" />
         </div>
         <h2 class="installed-card__name">{{ firmware.name }}</h2>
         <p class="installed-card__description">{{ firmware.description || 'No description provided.' }}</p>
@@ -395,6 +397,7 @@ async function installFirmware(firmware: InstalledFirmware, version: string) {
     <FirmwareDetails
       v-if="selectedFirmware"
       :firmware="selectedFirmware"
+      :repository-url="catalogRepositoryUrl"
       :update="availableUpdate(selectedFirmware)"
       :update-downloading="updateDownloadingId === selectedFirmware.id"
       :update-message="updateMessage"
@@ -428,9 +431,9 @@ async function installFirmware(firmware: InstalledFirmware, version: string) {
 .library-state h2 { margin: 0 0 5px; color: #e3dcd2; font-size: 21px; font-weight: 600; }
 .library-state p { margin: 0; color: #a49b97; font: 13px 'Share Tech Mono', monospace; }
 .installed-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
-.installed-card { display: flex; min-width: 0; flex-direction: column; padding: 14px; background: rgb(40 37 36 / 78%); border: 1px solid #48413f; cursor: pointer; transition: border-color .15s, background .15s; }
+.installed-card { display: flex; min-width: 0; flex-direction: column; padding: 0 14px 14px; background: rgb(40 37 36 / 78%); border: 1px solid #48413f; cursor: pointer; transition: border-color .15s, background .15s; }
 .installed-card:hover, .installed-card:focus-visible { background: rgb(48 44 43 / 90%); border-color: #766382; outline: none; }
-.installed-card__thumbnail { display: grid; width: 100%; aspect-ratio: 1 / 1; place-items: center; overflow: hidden; background: #211f1e; border: 1px solid #514754; }
+.installed-card__thumbnail { position: relative; display: grid; width: calc(100% + 28px); aspect-ratio: 1 / 1; margin: 0 -14px; place-items: center; overflow: hidden; background: #211f1e; }
 .installed-card__thumbnail > img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .installed-card__thumbnail .firmware-thumbnail { width: 100%; height: 100%; flex-basis: auto; border: 0; }
 .installed-card__name { margin: 13px 0 4px; color: #e8e1d7; font-size: 21px; font-weight: 600; }

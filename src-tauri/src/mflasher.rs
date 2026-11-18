@@ -84,6 +84,28 @@ pub(super) fn m_flasher_command(app: AppHandle, action: String) -> Result<String
 }
 
 #[tauri::command]
+pub(super) async fn m_flasher_flash_bootloader(app: AppHandle) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let executable = m_flasher_executable(&app)?;
+        ensure_device_in_download_mode(&executable)?;
+        let output = Command::new(executable)
+            .arg("bootloader")
+            .arg("--yes")
+            .stdin(Stdio::null())
+            .output()
+            .map_err(|error| format!("Could not run M-Flasher bootloader install: {error}"))?;
+        let text = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)).trim().to_string();
+        if output.status.success() {
+            Ok(if text.is_empty() { "Bootloader flashed successfully.".into() } else { text })
+        } else {
+            Err(if text.is_empty() { "M-Flasher bootloader install failed.".into() } else { text })
+        }
+    })
+    .await
+    .map_err(|error| format!("Could not wait for M-Flasher bootloader task: {error}"))?
+}
+
+#[tauri::command]
 pub(super) async fn m_flasher_backup(
     app: AppHandle,
     firmware_id: String,

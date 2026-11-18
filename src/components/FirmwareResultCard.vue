@@ -5,6 +5,8 @@ import type { FirmwareRecord } from '../services/firmwareCatalog'
 
 defineProps<{
   firmware: FirmwareRecord
+  repositoryUrl: string
+  updateAvailable?: boolean
   busy?: boolean
   canInstall: boolean
   downloaded?: boolean
@@ -19,8 +21,8 @@ function formatStars(value: unknown) {
 
 <template>
   <article class="firmware-result-card">
-    <button class="firmware-result-card__media" type="button" aria-label="Open firmware information" @click="emit('info')">
-      <FirmwareThumbnail class="firmware-result-card__image" :id="firmware.id" :card="firmware.card" :alt="`${firmware.name} thumbnail`" />
+    <button class="firmware-result-card__media" type="button" :aria-label="updateAvailable ? 'Open firmware information - New version!' : 'Open firmware information'" @click="emit('info')">
+      <FirmwareThumbnail class="firmware-result-card__image" :id="firmware.id" :card="firmware.card" :version="firmware.version" :repository-url="repositoryUrl" :alt="`${firmware.name} thumbnail`" :update-available="updateAvailable" />
       <div class="firmware-result-card__stats">
         <span v-if="formatStars(firmware.stars) !== null" class="firmware-result-card__stars">★ {{ formatStars(firmware.stars) }}</span>
         <span v-if="typeof firmware.installs === 'number'">{{ firmware.installs }} installs</span>

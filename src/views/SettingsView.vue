@@ -2,9 +2,12 @@
 import { onMounted, reactive, ref } from 'vue'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { LazyStore } from '@tauri-apps/plugin-store'
-import { DEFAULT_FIRMWARE_REPOSITORY_URL } from '../config'
+import { DEFAULT_FIRMWARE_REPOSITORY_URL, THUMBNAIL_CACHE_CLEARED_EVENT, THUMBNAIL_CACHE_NAME } from '../config'
 import ToolDownloadsSection from '../components/ToolDownloadsSection.vue'
 import AppUpdateSection from '../components/AppUpdateSection.vue'
+import type { MFlasherRequestPayload } from '../types/flasher'
+
+const emit = defineEmits<{ openFlasher: [request: MFlasherRequestPayload] }>()
 
 const preferences = reactive({ automaticallyBackupBeforeSwitching: true, firmwareRepositoryUrl: DEFAULT_FIRMWARE_REPOSITORY_URL })
 const repositoryUrlDraft = ref('')
@@ -15,6 +18,10 @@ const preferencesStore = new LazyStore('settings.json', { autoSave: true })
 const firmwareFolderDraft = ref('')
 const firmwareFolderMessage = ref('')
 const firmwareFolderError = ref(false)
+const mFlasherInstalled = ref<boolean | null | undefined>(undefined)
+const clearingCache = ref(false)
+const cacheMessage = ref('')
+const cacheError = ref(false)
 
 onMounted(async () => {
   try {
@@ -93,6 +100,24 @@ async function saveRepositoryUrl() {
   preferences.firmwareRepositoryUrl = repositoryUrlDraft.value.trim()
   await savePreferences()
 }
+
+async function clearImageCache() {
+  if (clearingCache.value) return
+  clearingCache.value = true
+  cacheMessage.value = ''
+  cacheError.value = false
+  try {
+    if (isTauri()) await invoke('clear_thumbnail_cache')
+    else if ('caches' in window) await caches.delete(THUMBNAIL_CACHE_NAME)
+    window.dispatchEvent(new Event(THUMBNAIL_CACHE_CLEARED_EVENT))
+    cacheMessage.value = 'Image cache cleared.'
+  } catch (error) {
+    cacheError.value = true
+    cacheMessage.value = error instanceof Error ? error.message : typeof error === 'string' ? error : 'Could not clear the image cache.'
+  } finally {
+    clearingCache.value = false
+  }
+}
 </script>
 
 <template>
@@ -121,7 +146,19 @@ async function saveRepositoryUrl() {
         <p class="settings-feedback" :class="{ 'is-error': settingsError }" aria-live="polite">{{ settingsMessage }}</p>
       </form>
       <AppUpdateSection />
-      <ToolDownloadsSection />
+      <section class="settings-group">
+        <h2>M-BOOTLOADER</h2>
+        <p class="repo-description">Installing m-bootloader on your FM-1 makes it easier to recover from interrupted firmware writes. Connect your device, then use the button below to flash it. Do not disconnect or power off the device while flashing the bootloader.</p>
+        <button class="action-button action-button--primary" type="button" :disabled="!isTauri() || mFlasherInstalled !== true" @click="emit('openFlasher', { type: 'flash-bootloader' })">{{ !isTauri() || mFlasherInstalled === true ? 'FLASH M-BOOTLOADER' : mFlasherInstalled === false ? 'M-flasher required, install below!' : mFlasherInstalled === null ? 'M-FLASHER STATUS UNAVAILABLE' : 'CHECKING M-FLASHER…' }}</button>
+        <p v-if="!isTauri()" class="settings-feedback">Bootloader flashing is available in the desktop app.</p>
+      </section>
+      <ToolDownloadsSection @m-flasher-status="mFlasherInstalled = $event" />
+      <section class="settings-group">
+        <h2>IMAGE CACHE</h2>
+        <p class="repo-description">Clear cached firmware images. Downloaded firmware and its saved thumbnails are kept.</p>
+        <button class="outline-button" type="button" :disabled="clearingCache" @click="clearImageCache">{{ clearingCache ? 'CLEARING…' : 'CLEAR IMAGE CACHE' }}</button>
+        <p v-if="cacheMessage" class="settings-feedback" :class="{ 'is-error': cacheError }" role="status">{{ cacheMessage }}</p>
+      </section>
     </div>
   </section>
 </template>

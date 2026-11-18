@@ -55,7 +55,11 @@ const CACHE_KEY = 'firmwareCatalogCache'
 const CACHE_TTL_MS = 8 * 60 * 60 * 1000
 const store = new LazyStore('settings.json', { autoSave: true })
 
-async function getRepositoryUrl() {
+export function isNewerFirmwareVersion(version: string, installedVersion: string): boolean {
+  return version.localeCompare(installedVersion, undefined, { numeric: true, sensitivity: 'base' }) > 0
+}
+
+export async function getRepositoryUrl() {
   if (isTauri()) {
     const saved = await store.get<{ firmwareRepositoryUrl?: string }>('preferences')
     return saved?.firmwareRepositoryUrl?.trim() || DEFAULT_FIRMWARE_REPOSITORY_URL
@@ -67,6 +71,15 @@ async function getRepositoryUrl() {
   } catch {
     return DEFAULT_FIRMWARE_REPOSITORY_URL
   }
+}
+
+export function resolveRepositoryUrl(path: string, repositoryUrl: string) {
+  return new URL(path, `${new URL(repositoryUrl).origin}/`).toString()
+}
+
+export function firmwareThumbnailUrls(id: string, card: string | null | undefined, repositoryUrl: string) {
+  const fallback = resolveRepositoryUrl(`/img/w0/${encodeURIComponent(id)}.webp`, repositoryUrl)
+  return card?.trim() ? [resolveRepositoryUrl(card, repositoryUrl), fallback] : [fallback]
 }
 
 async function getCache(): Promise<FirmwareCatalogCache | null> {

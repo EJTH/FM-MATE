@@ -7,6 +7,7 @@ withDefaults(defineProps<{ title?: string; description?: string }>(), {
   title: 'EXTRA DOWNLOADS',
   description: "Optional and required utilities for working with firmware. Downloads are kept in the app's tools folder.",
 })
+const emit = defineEmits<{ mFlasherStatus: [installed: boolean | null] }>()
 
 const tools = [
   { id: 'm-flasher', name: 'M-Flasher', description: 'Required to flash new firmwares and perform backups.', repository: 'jvitkauskas/m-flasher' },
@@ -22,10 +23,14 @@ onMounted(() => { if (isTauri()) void loadTools() })
 async function loadTools() {
   try {
     const statuses = await invoke<Array<{ id: string; installed: boolean; version: string | null }>>('get_tools_status')
+    const mFlasher = statuses.find((tool) => tool.id === 'm-flasher')
+    if (!mFlasher) throw new Error('M-Flasher status was not returned.')
     toolStatuses.value = Object.fromEntries(statuses.map((tool) => [tool.id, { installed: tool.installed, version: tool.version }]))
+    emit('mFlasherStatus', mFlasher.installed)
   } catch (error) {
+    emit('mFlasherStatus', null)
     toolError.value = true
-    toolMessage.value = error instanceof Error ? error.message : 'Could not check downloaded tools.'
+    toolMessage.value = error instanceof Error ? error.message : typeof error === 'string' ? error : 'Could not check downloaded tools.'
   }
 }
 
