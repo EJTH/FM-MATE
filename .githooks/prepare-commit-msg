@@ -4,6 +4,10 @@ if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
   exit 0
 fi
 
+if [ "${2-}" = "merge" ]; then
+  exit 0
+fi
+
 hook_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
 if [ -t 0 ]; then
