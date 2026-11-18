@@ -19,6 +19,8 @@ permissions:
 jobs:
   release:
     name: Release FM-MATE
+    outputs:
+      changelog: ${{ steps.changelog.outputs.content }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -62,27 +64,11 @@ jobs:
 
       - name: Generate changelog
         id: changelog
-        run: |
-          # Install git-cliff
-          cargo install git-cliff
-          
-          # Get the previous tag
-          PREV_TAG=$(git tag --sort=-version:refname --list 'v*' | head -n 2 | tail -n 1)
-          
-          if [ -z "$PREV_TAG" ]; then
-            # First release - generate from all commits
-            git-cliff v${{ github.event.inputs.version }} > changelog.md
-          else
-            # Generate changelog between previous and current release
-            git-cliff ${PREV_TAG}..v${{ github.event.inputs.version }} > changelog.md
-          fi
-          
-          # Read changelog and set as output
-          {
-            echo 'body<<EOF'
-            cat changelog.md
-            echo 'EOF'
-          } >> $GITHUB_OUTPUT
+        uses: orhun/git-cliff-action@v4
+        with:
+          args: --latest --strip header
+        env:
+          GITHUB_REPO: ${{ github.repository }}
 
   build:
     name: Build (${{ matrix.platform }})
@@ -168,7 +154,7 @@ jobs:
         with:
           tag_name: v${{ github.event.inputs.version }}
           name: Release ${{ github.event.inputs.version }}
-          body: ${{ needs.release.outputs.changelog.body }}
+          body: ${{ needs.release.outputs.changelog }}
           draft: false
           prerelease: ${{ github.event.inputs.prerelease }}
           files: |
