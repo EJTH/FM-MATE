@@ -3,6 +3,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { LazyStore } from '@tauri-apps/plugin-store'
 import { DEFAULT_FIRMWARE_REPOSITORY_URL, THUMBNAIL_CACHE_CLEARED_EVENT, THUMBNAIL_CACHE_NAME } from '../config'
+import { clearFirmwareCatalogCache } from '../services/firmwareCatalog'
 import ToolDownloadsSection from '../components/ToolDownloadsSection.vue'
 import AppUpdateSection from '../components/AppUpdateSection.vue'
 import type { MFlasherRequestPayload } from '../types/flasher'
@@ -101,19 +102,23 @@ async function saveRepositoryUrl() {
   await savePreferences()
 }
 
-async function clearImageCache() {
+async function clearCache() {
   if (clearingCache.value) return
   clearingCache.value = true
   cacheMessage.value = ''
   cacheError.value = false
   try {
-    if (isTauri()) await invoke('clear_thumbnail_cache')
-    else if ('caches' in window) await caches.delete(THUMBNAIL_CACHE_NAME)
+    await Promise.all([
+      clearFirmwareCatalogCache(),
+      isTauri()
+        ? invoke('clear_thumbnail_cache')
+        : 'caches' in window ? caches.delete(THUMBNAIL_CACHE_NAME) : Promise.resolve(),
+    ])
     window.dispatchEvent(new Event(THUMBNAIL_CACHE_CLEARED_EVENT))
-    cacheMessage.value = 'Image cache cleared.'
+    cacheMessage.value = 'Cache cleared.'
   } catch (error) {
     cacheError.value = true
-    cacheMessage.value = error instanceof Error ? error.message : typeof error === 'string' ? error : 'Could not clear the image cache.'
+    cacheMessage.value = error instanceof Error ? error.message : typeof error === 'string' ? error : 'Could not clear the cache.'
   } finally {
     clearingCache.value = false
   }
@@ -154,9 +159,9 @@ async function clearImageCache() {
       </section>
       <ToolDownloadsSection @m-flasher-status="mFlasherInstalled = $event" />
       <section class="settings-group">
-        <h2>IMAGE CACHE</h2>
-        <p class="repo-description">Clear cached firmware images. Downloaded firmware and its saved thumbnails are kept.</p>
-        <button class="outline-button" type="button" :disabled="clearingCache" @click="clearImageCache">{{ clearingCache ? 'CLEARING…' : 'CLEAR IMAGE CACHE' }}</button>
+        <h2>CACHE</h2>
+        <p class="repo-description">Clear cached firmware images and catalog data. Downloaded firmware and saved thumbnails are kept.</p>
+        <button class="outline-button" type="button" :disabled="clearingCache" @click="clearCache">{{ clearingCache ? 'CLEARING…' : 'CLEAR CACHE' }}</button>
         <p v-if="cacheMessage" class="settings-feedback" :class="{ 'is-error': cacheError }" role="status">{{ cacheMessage }}</p>
       </section>
     </div>

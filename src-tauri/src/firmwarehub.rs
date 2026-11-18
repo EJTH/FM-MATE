@@ -87,12 +87,12 @@ pub(super) async fn get_firmware_thumbnail(
         image
     } else {
         let response = make_http_client()?
-            .get(url)
+            .get(url.clone())
             .send()
             .await
             .map_err(|error| format!("Could not download thumbnail: {error}"))?;
         if !response.status().is_success() {
-            return Err(format!("Thumbnail request failed ({}).", response.status()));
+            return Err(format!("Thumbnail request failed ({}).", url));
         }
         let bytes = response
             .bytes()

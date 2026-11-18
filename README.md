@@ -35,7 +35,7 @@ FM1-Emu sessions use a temporary flash image. When the emulator closes, enter a 
 
 ## Getting Started
 
-### Prerequisites
+### Build Prerequisites
 
 - Node.js 20+ and npm
 - Rust (for building from source)
@@ -113,12 +113,9 @@ FM-MATE/
 
 FM-MATE is built using GitHub Actions. The build workflow:
 
-- Runs on every push and pull request
 - Generates Windows x64 installers (MSI and NSIS)
 - Generates macOS Apple Silicon DMG with code-signing
 - Uploads artifacts for download
-
-**Note**: macOS builds are code-signed with a valid Apple developer certificate to ensure app integrity on modern macOS versions.
 
 ## License
 

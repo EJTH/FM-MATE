@@ -6,7 +6,17 @@ const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
 export default defineConfig(() => ({
-  plugins: [vue()],
+  plugins: [
+    vue(),
+    {
+      name: "thumbnail-failure-log",
+      configureServer(server) {
+        server.ws.on("thumbnail:failure", (message: unknown) => {
+          if (typeof message === "string") console.warn(message);
+        });
+      },
+    },
+  ],
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

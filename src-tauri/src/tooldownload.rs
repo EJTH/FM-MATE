@@ -7,10 +7,12 @@ use tauri::{AppHandle, Manager};
 use zip::ZipArchive;
 use crate::ensure_safe_name;
 use crate::firmwarehub::make_http_client;
+
+#[cfg(target_os = "macos")]
 use std::process::Command;
 
-use std::time::UNIX_EPOCH;
- use std::time::SystemTime;
+use crate::utils::{staging_dir_path, unix_timestamp_nanos};
+
 #[derive(Deserialize)]
 struct GithubRelease {
     tag_name: String,
@@ -471,11 +473,8 @@ pub(super) async fn check_or_update_tool(app: AppHandle, id: String) -> Result<T
         return Err("The tool download is empty or larger than 512 MiB.".into());
     }
 
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let staging = root.join(format!(".{id}-{stamp}.staging"));
+    let stamp = unix_timestamp_nanos();
+    let staging = staging_dir_path(&root, &id, stamp);
     std::fs::create_dir_all(&staging)
         .map_err(|error| format!("Could not prepare tool update: {error}"))?;
     let extraction = match archive_kind {

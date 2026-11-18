@@ -52,8 +52,17 @@ interface FirmwareCatalogCache {
 }
 
 const CACHE_KEY = 'firmwareCatalogCache'
-const CACHE_TTL_MS = 8 * 60 * 60 * 1000
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000
 const store = new LazyStore('settings.json', { autoSave: true })
+
+export async function clearFirmwareCatalogCache() {
+  if (isTauri()) {
+    await store.delete(CACHE_KEY)
+    await store.save()
+  } else {
+    localStorage.removeItem(`fm-mate.${CACHE_KEY}`)
+  }
+}
 
 export function isNewerFirmwareVersion(version: string, installedVersion: string): boolean {
   return version.localeCompare(installedVersion, undefined, { numeric: true, sensitivity: 'base' }) > 0
@@ -74,7 +83,8 @@ export async function getRepositoryUrl() {
 }
 
 export function resolveRepositoryUrl(path: string, repositoryUrl: string) {
-  return new URL(path, `${new URL(repositoryUrl).origin}/`).toString()
+  const url = repositoryUrl.replace('/catalog.json','/') + path
+  return url;
 }
 
 export function firmwareThumbnailUrls(id: string, card: string | null | undefined, repositoryUrl: string) {

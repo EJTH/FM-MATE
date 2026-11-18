@@ -418,10 +418,13 @@ const visibleFirmwares = computed(() => {
       <label class="search-field"><span aria-hidden="true">⌕</span><input v-model="search" type="search" placeholder="Search name, author, device" aria-label="Search firmware" /></label>
       <select v-model="deviceFilter" aria-label="Filter by device"><option value="all">All devices</option><option value="fm1">FM-1</option><option value="smk37">SMK-37</option></select>
       <div class="result-view-toggle" role="group" aria-label="Results layout">
-        <button type="button" :aria-pressed="resultView === 'detailed'" :class="{ 'is-active': resultView === 'detailed' }" @click="resultView = 'detailed'">DETAILS</button>
-        <button type="button" :aria-pressed="resultView === 'grid'" :class="{ 'is-active': resultView === 'grid' }" @click="resultView = 'grid'">GRID</button>
+        <button type="button" aria-label="Grid view" title="Grid view" :aria-pressed="resultView === 'grid'" :class="{ 'is-active': resultView === 'grid' }" @click="resultView = 'grid'">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="5" height="5" rx=".5" /><rect x="12" y="3" width="5" height="5" rx=".5" /><rect x="3" y="12" width="5" height="5" rx=".5" /><rect x="12" y="12" width="5" height="5" rx=".5" /></svg>
+        </button>
+        <button type="button" aria-label="List view" title="List view" :aria-pressed="resultView === 'detailed'" :class="{ 'is-active': resultView === 'detailed' }" @click="resultView = 'detailed'">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 5h10M7 10h10M7 15h10" /><circle cx="3" cy="5" r=".75" /><circle cx="3" cy="10" r=".75" /><circle cx="3" cy="15" r=".75" /></svg>
+        </button>
       </div>
-      <button class="outline-button" type="button" :disabled="loading" @click="loadRepository">{{ loading ? 'LOADING…' : 'REFRESH CATALOG' }}</button>
     </div>
 
     <div class="browse-options">
@@ -505,7 +508,7 @@ const visibleFirmwares = computed(() => {
 .catalog-attribution-inline { position:absolute; top:0px; right: 0px;font-size: 11px; color: #aaa09a; white-space: nowrap; }
 .catalog-attribution-inline a { color: #bda5df; text-decoration: none; }
 .catalog-attribution-inline a:hover { color: #e1cff8; text-decoration: underline; }
-.toolbar { position: sticky; top: 120px; z-index: 10; background: rgb(28 25 24 / 95%); backdrop-filter: blur(4px); padding: 0; margin: 0; border-bottom: 1px solid #48413f; }
+.toolbar { position: sticky; top: 120px; z-index: 10; background: rgb(28 25 24 / 95%); backdrop-filter: blur(4px); padding: 0; margin: 0; }
 .catalog-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 18px; min-height: 24px; margin: -7px 0 8px; color: #8f8580; font: 11px 'Share Tech Mono', monospace; letter-spacing: .04em; }
 .browse-options { position: sticky; top: 164px; z-index: 9; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 20px; margin: 0 0 14px; padding: 10px 12px; background: rgb(40 37 36 / 95%); border: 1px solid #48413f; border-top: 0; backdrop-filter: blur(4px); }
 @media (max-width: 1000px) {
@@ -545,7 +548,8 @@ const visibleFirmwares = computed(() => {
 .firmware-list { display: grid; gap: 10px; }
 .firmware-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); align-items: stretch; gap: 14px; }
 .result-view-toggle { display: inline-flex; flex: 0 0 auto; padding: 3px; background: #211f1e; border: 1px solid #4a4442; }
-.result-view-toggle button { min-height: 32px; padding: 0 10px; color: #aaa09a; background: transparent; border: 0; font-size: 11px; font-weight: 700; letter-spacing: .08em; cursor: pointer; }
+.result-view-toggle button { display: grid; width: 36px; min-height: 32px; padding: 0; place-items: center; color: #aaa09a; background: transparent; border: 0; cursor: pointer; }
+.result-view-toggle svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .result-view-toggle button.is-active { color: #f0eae2; background: linear-gradient(135deg, #21413e, #1b3331); box-shadow: inset 0 0 0 1px #3c766a; }
 .result-view-toggle button:focus-visible { outline: 2px solid #65e1c1; outline-offset: 1px; }
 .download-feedback { margin: 0 0 12px; color: #72e7c3; font: 12px 'Share Tech Mono', monospace; }
