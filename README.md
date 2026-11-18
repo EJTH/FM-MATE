@@ -31,6 +31,8 @@ Visit the [releases page](../../releases) to download the latest stable version.
 - **Intuitive UI**: Beautiful, modern interface designed for ease of use
 - **Cross-Platform**: Available for Windows and macOS
 
+FM1-Emu sessions use a temporary flash image. When the emulator closes, enter a name to save it with that firmware version, or cancel to discard it. Existing saves are copied before opening. The `.fm1save` files created here are raw flash images for `fm1-live --flash`, not the emulator's portable JSON `.fm1save` format.
+
 ## Getting Started
 
 ### Prerequisites

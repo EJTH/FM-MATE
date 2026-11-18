@@ -9,6 +9,7 @@ defineProps<{
   loadError: boolean
   loadErrorMessage: string
   emptyMessage: string
+  emulating?: boolean
 }>()
 const emit = defineEmits<{
   emulate: [save: InstalledSave]
@@ -61,7 +62,7 @@ function confirmDeleteSave() {
           <td>{{ formattedSize(save.size) }}</td>
           <td class="save-action-cell">
             <div class="save-action-buttons">
-              <button class="save-icon-button save-emulate-button" type="button" :aria-label="`Emulate ${save.fileName}`" title="Emulate" @click="emit('emulate', save)">
+              <button class="save-icon-button save-emulate-button" type="button" :disabled="emulating" :aria-label="`Emulate ${save.fileName}`" title="Emulate" @click="emit('emulate', save)">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13L19 12 8 5.5Z" /></svg>
                 <span class="sr-only">Emulate</span>
               </button>

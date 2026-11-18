@@ -19,7 +19,7 @@ pub fn unix_timestamp_nanos() -> u128 {
 
 /// Create a temporary file path with the given prefix and directory
 pub fn temp_file_path(dir: &std::path::Path, prefix: &str, timestamp: u64) -> PathBuf {
-    dir.join(format!(".{}_{}.fm1save", prefix, timestamp))
+    dir.join(format!(".{}_{}.", prefix, timestamp))
 }
 
 /// Create a temporary staging directory path with the given id and timestamp

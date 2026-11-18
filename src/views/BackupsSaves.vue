@@ -4,6 +4,8 @@ import { invoke, isTauri } from '@tauri-apps/api/core'
 import type { InstalledSave } from '../types/saves'
 import SavesTable from '../components/SavesTable.vue'
 import type { MFlasherRequestPayload } from '../types/flasher'
+import { finishEmulatorSession } from '../services/emulatorSession'
+import type { EmulatorSavePrompt } from '../services/emulatorSession'
 
 interface SaveFilter {
   firmwareId: string
@@ -18,6 +20,7 @@ const loading = ref(true)
 const loadError = ref(false)
 const loadErrorMessage = ref('')
 const actionMessage = ref('')
+const emulating = ref(false)
 const selectedFirmwareId = ref('')
 const selectedVersion = ref('')
 const sortedSaves = computed(() => [...saves.value]
@@ -71,34 +74,27 @@ async function deleteSave(save: InstalledSave) {
 }
 
 async function emulateSave(save: InstalledSave) {
+  if (emulating.value) return
   actionMessage.value = ''
+  emulating.value = true
   try {
-    const savePrompt = await invoke<{ tempFile: string; suggestedName: string }>('open_save_in_emulator', {
+    const savePrompt = await invoke<EmulatorSavePrompt>('open_save_in_emulator', {
       firmwareId: save.firmwareId,
       version: save.version,
       relativePath: save.relativePath,
     })
     
-    const saveName = prompt('Save emulator session as:', savePrompt.suggestedName)
-    if (saveName) {
-      const lastSeparator = Math.max(
-        savePrompt.tempFile.lastIndexOf('/'),
-        savePrompt.tempFile.lastIndexOf('\\')
-      )
-      const targetDir = savePrompt.tempFile.substring(0, lastSeparator)
-      await invoke('save_emulator_temp_file', {
-        tempFile: savePrompt.tempFile,
-        targetName: saveName,
-        targetDir,
-        firmwareId: save.firmwareId,
-        firmwareVersion: save.version,
-      })
-      actionMessage.value = `Emulator session saved as ${saveName}`
+    const saved = await finishEmulatorSession(savePrompt)
+    if (saved) {
+      await loadSaves()
+      actionMessage.value = `Emulator session saved as ${saved.fileName}.${saved.warning ? ` ${saved.warning}` : ''}`
     } else {
       actionMessage.value = 'Emulator session not saved.'
     }
   } catch (error) {
     actionMessage.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    emulating.value = false
   }
 }
 
@@ -172,6 +168,7 @@ function saveDeviceBackup() {
       :load-error="loadError"
       :load-error-message="loadErrorMessage"
       :empty-message="selectedFirmwareId || selectedVersion ? 'No saves match these filters.' : 'Saves stored with downloaded firmware versions will appear here.'"
+      :emulating="emulating"
       @delete="deleteSave"
       @emulate="emulateSave"
       @open-folder="openSaveFolder"

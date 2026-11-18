@@ -12,6 +12,8 @@ import type { InstalledFirmware, InstalledVersion } from '../types/firmware'
 import { firmwareThumbnailUrls, getRepositoryUrl, isNewerFirmwareVersion, loadFirmwareCatalog } from '../services/firmwareCatalog'
 import type { FirmwareRecord } from '../services/firmwareCatalog'
 import type { MFlasherRequestPayload } from '../types/flasher'
+import { finishEmulatorSession } from '../services/emulatorSession'
+import type { EmulatorSavePrompt } from '../services/emulatorSession'
 
 const props = defineProps<{ openFirmwareId?: string | null }>()
 const emit = defineEmits<{
@@ -47,6 +49,7 @@ const catalogRepositoryUrl = ref('')
 const catalogNotice = ref('')
 const updateDownloadingId = ref('')
 const updateMessage = ref('')
+const emulating = ref(false)
 const loading = ref(true)
 const loadError = ref(false)
 const folderError = ref('')
@@ -236,29 +239,33 @@ async function openEditor(firmware: InstalledFirmware, version?: InstalledVersio
 }
 
 async function openInEmulator(firmware: InstalledFirmware, version: InstalledVersion) {
+  if (emulating.value) return
   updateMessage.value = ''
   if (!isTauri()) {
     updateMessage.value = 'Open in emulator is available in the desktop app.'
     return
   }
+  emulating.value = true
+  function report(message: string) {
+    if (selectedFirmware.value?.id === firmware.id) updateMessage.value = message
+    else actionMessage.value = message
+  }
   try {
-    const savePrompt = await invoke<{ tempFile: string; suggestedName: string }>('open_firmware_in_emulator', { id: firmware.id, version: version.version })
-    
-    const saveName = prompt('Save emulator session as:', savePrompt.suggestedName)
-    if (saveName) {
-      await invoke('save_emulator_temp_file', {
-        tempFile: savePrompt.tempFile,
-        targetName: saveName,
-        targetDir: version.savesPath || '',
-        firmwareId: firmware.id,
-        firmwareVersion: version.version,
-      })
-      updateMessage.value = `Emulator session saved as ${saveName}`
+    const savePrompt = await invoke<EmulatorSavePrompt>('open_firmware_in_emulator', { id: firmware.id, version: version.version })
+    const saved = await finishEmulatorSession(savePrompt)
+    if (saved) {
+      await loadDownloads()
+      if (selectedFirmware.value?.id === firmware.id) {
+        selectedFirmware.value = firmwares.value.find((item) => item.id === firmware.id) ?? null
+      }
+      report(`Emulator session saved as ${saved.fileName}.${saved.warning ? ` ${saved.warning}` : ''}`)
     } else {
-      updateMessage.value = 'Emulator session not saved.'
+      report('Emulator session not saved.')
     }
   } catch (error) {
-    updateMessage.value = error instanceof Error ? error.message : 'Could not open firmware in FM1-Emu.'
+    report(error instanceof Error ? error.message : String(error))
+  } finally {
+    emulating.value = false
   }
 }
 
@@ -401,6 +408,7 @@ async function installFirmware(firmware: InstalledFirmware, version: string) {
       :update="availableUpdate(selectedFirmware)"
       :update-downloading="updateDownloadingId === selectedFirmware.id"
       :update-message="updateMessage"
+      :emulating="emulating"
       :catalog-notice="catalogNotice"
       @close="selectedFirmware = null"
       @open-in-emulator="openInEmulator(selectedFirmware, $event)"

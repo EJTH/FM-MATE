@@ -11,6 +11,7 @@ const props = defineProps<{
   repositoryUrl: string
   update?: FirmwareRecord | null
   updateDownloading?: boolean
+  emulating?: boolean
   updateMessage?: string
   catalogNotice?: string
 }>()
@@ -109,7 +110,7 @@ function editorUrl() {
         <article v-for="version in firmware.installedVersions" :key="version.version" class="details-version">
           <div class="details-version__heading"><strong>{{ version.version }}{{ firmware.currentVersion === version.version ? ' · CURRENT' : '' }}</strong><span>{{ version.saves.length }} {{ version.saves.length === 1 ? 'save' : 'saves' }}</span></div>
           <div class="details-version__actions">
-            <button class="details-emulator-link" type="button" @click="emit('openInEmulator', version)">OPEN IN EMULATOR</button>
+            <button class="details-emulator-link" type="button" :disabled="emulating" @click="emit('openInEmulator', version)">{{ emulating ? 'EMULATOR RUNNING…' : 'OPEN IN EMULATOR' }}</button>
             <button v-if="editorUrl()" class="details-editor-link" type="button" @click="emit('openEditor', version)">EDITOR ↗</button>
             <button class="details-saves-link" type="button" @click="emit('openSaves', { firmwareId: firmware.id, version: version.version })">{{ version.saves.length }} {{ version.saves.length === 1 ? 'SAVE' : 'SAVES' }} ↗</button>
             <button class="details-delete-link" type="button" @click="emit('deleteVersion', version)">DELETE</button>

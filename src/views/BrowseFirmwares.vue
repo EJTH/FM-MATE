@@ -8,6 +8,8 @@ import ConfirmationDialog from '../components/ConfirmationDialog.vue'
 import { firmwareThumbnailUrls, isNewerFirmwareVersion, loadFirmwareCatalog } from '../services/firmwareCatalog'
 import type { FirmwareCatalogLicense, FirmwareRecord } from '../services/firmwareCatalog'
 import type { MFlasherRequestPayload } from '../types/flasher'
+import { finishEmulatorSession } from '../services/emulatorSession'
+import type { EmulatorSavePrompt } from '../services/emulatorSession'
 
 type DeviceFilter = 'all' | 'fm1' | 'smk37'
 interface DownloadedFirmware {
@@ -273,15 +275,23 @@ async function tryFirmware(firmware: FirmwareRecord) {
   downloadMessage.value = ''
   downloadIsError.value = false
   try {
-    if (!hasDownloaded(firmware) && !await downloadFirmware(firmware)) return
-    await invoke('try_firmware_in_emulator', {
+    const previouslyDownloaded = hasDownloaded(firmware)
+    if (!previouslyDownloaded && !await downloadFirmware(firmware)) return
+    const session = await invoke<EmulatorSavePrompt>('open_firmware_in_emulator', {
       id: firmware.id,
       version: firmware.version ?? 'unknown',
     })
-    firmwareKeepPrompt.value = firmware
+    const saved = await finishEmulatorSession(session)
+    if (saved) {
+      downloadMessage.value = `Emulator session saved as ${saved.fileName}.${saved.warning ? ` ${saved.warning}` : ''}`
+    } else if (!previouslyDownloaded) {
+      firmwareKeepPrompt.value = firmware
+    } else {
+      downloadMessage.value = 'Emulator session not saved.'
+    }
   } catch (error) {
     downloadIsError.value = true
-    downloadMessage.value = error instanceof Error ? error.message : 'Could not open firmware in FM1-Emu.'
+    downloadMessage.value = error instanceof Error ? error.message : String(error)
   } finally {
     tryingId.value = ''
   }
