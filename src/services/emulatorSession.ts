@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import { shallowRef } from 'vue'
 
 export interface EmulatorSavePrompt {
   sessionId: string
@@ -10,21 +11,29 @@ interface SavedEmulatorSession {
   warning: string | null
 }
 
-export async function finishEmulatorSession(session: EmulatorSavePrompt): Promise<SavedEmulatorSession | null> {
-  let message = 'Save emulator session as:'
-  let suggestedName = session.suggestedName
-  while (true) {
-    const name = window.prompt(message, suggestedName)
-    if (name === null) {
-      await invoke('finish_emulator_session', { sessionId: session.sessionId, name: null })
-      return null
-    }
-    suggestedName = name
-    try {
-      return await invoke<SavedEmulatorSession>('finish_emulator_session', { sessionId: session.sessionId, name })
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error)
-      message = `${detail}\n\nSave emulator session as (or cancel to discard):`
-    }
-  }
+interface PendingSession {
+  session: EmulatorSavePrompt
+  resolve: (result: SavedEmulatorSession | null) => void
+}
+
+const pendingSessions: PendingSession[] = []
+export const currentEmulatorSession = shallowRef<EmulatorSavePrompt | null>(null)
+
+export function finishEmulatorSession(session: EmulatorSavePrompt): Promise<SavedEmulatorSession | null> {
+  return new Promise((resolve) => {
+    pendingSessions.push({ session, resolve })
+    if (!currentEmulatorSession.value) currentEmulatorSession.value = session
+  })
+}
+
+export async function completeEmulatorSession(name: string | null): Promise<void> {
+  const pending = pendingSessions[0]
+  if (!pending) throw new Error('Emulator session not found.')
+  const result = await invoke<SavedEmulatorSession | null>('finish_emulator_session', {
+    sessionId: pending.session.sessionId,
+    name,
+  })
+  pendingSessions.shift()
+  currentEmulatorSession.value = pendingSessions[0]?.session ?? null
+  pending.resolve(result)
 }

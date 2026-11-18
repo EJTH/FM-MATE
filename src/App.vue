@@ -4,6 +4,7 @@ import { invoke, isTauri } from '@tauri-apps/api/core'
 import { LazyStore } from '@tauri-apps/plugin-store'
 import AppHeader from './components/AppHeader.vue'
 import WelcomeDialog from './components/WelcomeDialog.vue'
+import EmulatorSaveDialog from './components/EmulatorSaveDialog.vue'
 import BrowseFirmwares from './views/BrowseFirmwares.vue'
 import DownloadedFirmwares from './views/DownloadedFirmwares.vue'
 import BackupsSaves from './views/BackupsSaves.vue'
@@ -122,6 +123,7 @@ async function dismissWelcome() {
   <main class="app-shell">
     <AppHeader :active-view="activeView" :lcd-state="flasherLcdState" @navigate="activeView = $event" />
     <WelcomeDialog v-if="welcomeVisible" @dismiss="dismissWelcome" />
+    <EmulatorSaveDialog />
     <div class="app-content">
       <KeepAlive>
         <component :is="activeComponent" :key="activeView" role="tabpanel" :initial-filter="activeView === 'backups' ? saveFilter : null" :open-firmware-id="activeView === 'downloaded' ? requestedFirmwareDetailsId : null" :pending-action="activeView === 'lcd' ? flasherRequest : null" @open-settings="activeView = 'settings'" @open-saves="openSaves" @open-flasher="openFlasher" @open-installed-firmware="openInstalledFirmwareDetails" @details-opened="clearRequestedFirmwareDetails" @action-complete="clearFlasherRequest" @lcd-state="flasherLcdState = $event" />
