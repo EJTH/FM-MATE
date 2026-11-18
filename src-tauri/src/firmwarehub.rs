@@ -974,6 +974,21 @@ pub(super) fn launch_editor_in_chrome(url: String) -> bool {
         return false;
     }
 
+    #[cfg(target_os = "macos")]
+    {
+        if Command::new("/usr/bin/open")
+            .args(["-a", "Google Chrome", "--args"])
+            .arg(format!("--app={url}"))
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+        {
+            return true;
+        }
+    }
+
     let mut candidates = vec![PathBuf::from("chrome"), PathBuf::from("chrome.exe")];
     #[cfg(target_os = "windows")]
     {
