@@ -15,9 +15,12 @@ const emit = defineEmits<{ dismiss: [] }>()
       <div class="welcome-content">
         <img src="/fm-mate-logo.svg" alt="FM-MATE Logo" class="welcome-logo" />
         <p class="welcome-thanks">Thanks for downloading FM-MATE!</p>
-        <p class="welcome-intro">Before you get started, be sure </p>
+        <p class="welcome-intro">Before you get started, be sure to download the necessary tools below. And to prevent any bricking mishaps, go to settings and install m-bootloader on your FM-1!
+          m-bootloader prevents your device from being bricked by ensuring that it can always go into "download-mode" - 
+        </p>
+        <div class="m-bootloader-warning">Flash m-bootloader to your device through the Settings menu before you switch firmwares!</div>
         <ToolDownloadsSection
-          title="TOOLS YOU CAN DOWNLOAD"
+          title="TOOLS YOU SHOULD DOWNLOAD"
           description="M-Flasher is required to install firmware and create device backups. FM1-Emu is optional and lets you try firmware locally before using it on your device."
         />
         <footer><button class="action-button action-button--primary" type="button" @click="emit('dismiss')">GET STARTED</button></footer>
@@ -40,4 +43,5 @@ const emit = defineEmits<{ dismiss: [] }>()
 .welcome-content .settings-group { padding: 0; border: 0; }
 .welcome-content footer { display: flex; justify-content: flex-end; margin-top: 14px; }
 .welcome-content footer button { min-height: 40px; padding: 8px 18px; cursor: pointer; }
+.welcome-content .m-bootloader-warning { margin-bottom: 20px; font-size:20px; color: #ff6b6b;}
 </style>

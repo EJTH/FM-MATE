@@ -625,7 +625,7 @@ function cancelPendingAction() {
       <div v-else class="lcd-actions">
         <button class="action-button" type="button" :disabled="!!busyAction" @click="primaryAction">{{ primaryActionLabel }}</button>
         <button class="action-button" type="button" :disabled="!!busyAction || !detected?.deviceFound || !selectedBackupTarget" @click="backupDevice">{{ busyAction === 'backup' ? 'SAVING…' : 'BACKUP' }}</button>
-        <button class="action-button" type="button" :disabled="!!busyAction || !detected?.deviceFound" @click="updateBootloader">{{ busyAction === 'info' ? 'READING…' : 'Update bootloader' }}</button>
+        <button class="action-button" type="button" :disabled="!!busyAction || !detected?.deviceFound" @click="updateBootloader">{{ busyAction === 'info' ? 'READING…' : 'Flash m-bootloader' }}</button>
       </div>
       <label class="backup-firmware-picker">
         FIRMWARE TO ASSOCIATE WITH THIS SAVE
