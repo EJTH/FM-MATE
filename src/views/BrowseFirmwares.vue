@@ -410,7 +410,7 @@ const visibleFirmwares = computed(() => {
           <span v-else>{{ repositoryLicenseDisplay }}</span>
           <span v-if="catalogSource"> • </span>
         </template>
-        <span v-if="catalogSource">Data provided by <a :href="catalogSource.href" target="_blank" rel="noreferrer">{{ catalogSource.label }}</a></span>
+        <span v-if="catalogSource">Data provided by <a href="TheFirmwareHub.com" target="_blank" rel="noreferrer">TheFirmwareHub.com</a></span>
       </div>
     </div>
 
