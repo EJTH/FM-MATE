@@ -340,6 +340,11 @@ function kindLabel(firmware: FirmwareRecord) {
   return typeof firmware.kind === 'string' && firmware.kind.trim() ? firmware.kind : 'Other'
 }
 
+function toggleKind(kind: string) {
+  const isOnlySelectedKind = selectedKinds.value.length === 1 && selectedKinds.value[0] === kind
+  selectedKinds.value = isOnlySelectedKind ? availableKinds.value : [kind]
+}
+
 const availableKinds = computed(() => {
   const kinds = [...new Set(firmwares.value.map(kindLabel))]
   const counts = new Map<string, number>()
@@ -431,7 +436,7 @@ const visibleFirmwares = computed(() => {
       <fieldset class="kind-filters" :disabled="!availableKinds.length">
         <legend>FILTER BY KIND</legend>
         <div>
-          <div v-for="kind in availableKinds" :key="kind" class="kind-option"><input v-model="selectedKinds" type="checkbox" :value="kind" :aria-label="`Toggle ${kind}`" /><button type="button" class="kind-name" :title="`Show only ${kind}`" @click="selectedKinds = [kind]">{{ kind }} <span class="kind-count">({{ kindCounts.get(kind) ?? 0 }})</span></button></div>
+          <div v-for="kind in availableKinds" :key="kind" class="kind-option"><input v-model="selectedKinds" type="checkbox" :value="kind" :aria-label="`Toggle ${kind}`" /><button type="button" class="kind-name" :title="selectedKinds.length === 1 && selectedKinds[0] === kind ? 'Show all kinds' : `Show only ${kind}`" @click="toggleKind(kind)">{{ kind }} <span class="kind-count">({{ kindCounts.get(kind) ?? 0 }})</span></button></div>
           <span v-if="!availableKinds.length" class="no-kinds">Kinds appear when a catalog is loaded.</span>
         </div>
       </fieldset>
