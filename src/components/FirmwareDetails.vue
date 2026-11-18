@@ -4,9 +4,11 @@ import FirmwareThumbnail from './FirmwareThumbnail.vue'
 import InstallDropdown from './InstallDropdown.vue'
 import type { InstalledFirmware, InstalledVersion } from '../types/firmware'
 import type { FirmwareRecord } from '../services/firmwareCatalog'
+import { resolveRepositoryUrl } from '../services/firmwareCatalog'
 
 const props = defineProps<{
   firmware: InstalledFirmware
+  repositoryUrl: string
   update?: FirmwareRecord | null
   updateDownloading?: boolean
   updateMessage?: string
@@ -47,10 +49,11 @@ const detailsLinks = computed(() => {
     let href = value.trim()
     if (key === 'repo' && /^[\w.-]+\/[\w.-]+$/.test(href)) {
       href = `https://github.com/${href}`
-    } else if (['pkg', 'mirror'].includes(key) && !/^https?:\/\//i.test(href)) {
-      href = new URL(href, 'https://thefirmwarehub.com/').toString()
     }
     try {
+      if (['pkg', 'mirror'].includes(key) && !/^https?:\/\//i.test(href)) {
+        href = resolveRepositoryUrl(href, props.repositoryUrl)
+      }
       const url = new URL(href)
       if (!['https:', 'http:'].includes(url.protocol)) return []
       return [{ key, label: labels[key], href: url.toString() }]
@@ -79,8 +82,8 @@ function editorUrl() {
       <p class="eyebrow">FIRMWARE DETAILS</p>
       <div class="details-overview">
         <div class="details-thumbnail">
-          <img v-if="firmware.thumbnailData" :src="firmware.thumbnailData" :alt="`${firmware.name} thumbnail`" />
-          <FirmwareThumbnail v-else :id="firmware.id" :alt="`${firmware.name} thumbnail`" />
+          <img v-if="firmware.thumbnailData && !update" :src="firmware.thumbnailData" :alt="`${firmware.name} thumbnail`" />
+          <FirmwareThumbnail v-else :id="firmware.id" :card="update?.card" :version="update?.version || firmware.installedVersions[0]?.version" :fallback-data="firmware.thumbnailData" :repository-url="repositoryUrl" :alt="`${firmware.name} thumbnail`" />
         </div>
         <div class="details-summary">
           <h2>{{ firmware.name }}</h2>

@@ -1,6 +1,7 @@
 use reqwest::Client;
 use std::path::{Path, PathBuf};
 use std::collections::HashSet;
+use scraper::{Html, Selector};
 use regex::Regex;
 use once_cell::sync::Lazy;
 
@@ -8,16 +9,8 @@ use crate::firmwarehub::make_http_client;
 
 const MAX_EDITOR_SIZE: u64 = 16 * 1024 * 1024; // 16 MiB
 
-static SCRIPT_SRC_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"<script\s+[^>]*src\s*=\s*['"](.*?)['"][^>]*>"#).unwrap()
-});
-
-static LINK_HREF_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"<link\s+[^>]*href\s*=\s*['"](.*?)['"][^>]*>"#).unwrap()
-});
-
-static IMG_SRC_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"<img\s+[^>]*src\s*=\s*['"](.*?)['"][^>]*>"#).unwrap()
+static CSS_URL_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"url\(\s*(?:['"]([^'"]*)['"]|([^\s)]+))\s*\)"#).unwrap()
 });
 
 /// Downloads an editor from a URL and saves it to the target directory.
@@ -52,11 +45,35 @@ pub async fn download_editor(editor_url: &str, target_dir: &Path) -> Result<(), 
     std::fs::create_dir_all(&assets_dir)
         .map_err(|e| format!("Failed to create assets directory: {}", e))?;
 
-    // Download all assets
+    // Download all assets and collect CSS files for further processing
+    let mut css_files = Vec::new();
     for (asset_url, asset_path) in assets {
         if let Err(e) = download_asset(&client, &asset_url, &assets_dir, &asset_path).await {
             eprintln!("Warning: Failed to download asset {}: {}", asset_url, e);
-            // Continue with other assets even if one fails
+            continue;
+        }
+        
+        // Track CSS files for processing
+        if asset_path.extension().and_then(|s| s.to_str()) == Some("css") {
+            css_files.push((asset_url, asset_path));
+        }
+    }
+
+    // Process CSS files for embedded URLs
+    for (_css_url, css_path) in css_files {
+        let full_css_path = assets_dir.join(&css_path);
+        if let Ok(css_content) = std::fs::read_to_string(&full_css_path) {
+            if let Ok((rewritten_css, css_assets)) = parse_and_rewrite_css(&css_content, &url) {
+                // Download CSS assets
+                for (asset_url, asset_path) in css_assets {
+                    if let Err(e) = download_asset(&client, &asset_url, &assets_dir, &asset_path).await {
+                        eprintln!("Warning: Failed to download CSS asset {}: {}", asset_url, e);
+                    }
+                }
+                // Write rewritten CSS back
+                std::fs::write(&full_css_path, rewritten_css)
+                    .map_err(|e| format!("Failed to write CSS file: {}", e))?;
+            }
         }
     }
 
@@ -93,7 +110,7 @@ async fn download_file(client: &Client, url: &reqwest::Url) -> Result<Vec<u8>, S
     Ok(bytes.to_vec())
 }
 
-/// Parses HTML, extracts asset URLs, rewrites them to point to local assets,
+/// Parses HTML, extracts asset URLs, rewrites them to point to original URLs,
 /// and returns the modified HTML along with a list of assets to download
 fn parse_and_rewrite_html(
     html: &[u8],
@@ -102,53 +119,104 @@ fn parse_and_rewrite_html(
     let html_str = String::from_utf8(html.to_vec())
         .map_err(|e| format!("Invalid UTF-8 in HTML: {}", e))?;
 
-    let mut rewritten = html_str.clone();
+    let document = Html::parse_document(&html_str);
+    let mut assets = Vec::new();
+    let mut processed_urls = HashSet::new();
+    let mut html_output = html_str.clone();
+
+    // Process script src attributes
+    let script_selector = Selector::parse("script[src]").unwrap();
+    for element in document.select(&script_selector) {
+        if let Some(src) = element.value().attr("src") {
+            if let Some((asset_path, full_url)) = resolve_asset_url(src, base_url) {
+                if !processed_urls.contains(&full_url) {
+                    processed_urls.insert(full_url.clone());
+                    assets.push((full_url.clone(), asset_path.clone()));
+                    // Rewrite to point to assets folder
+                    html_output = html_output.replace(src, &format!("assets/{}", asset_path.display()));
+                }
+            }
+        }
+    }
+
+    // Process link href attributes (stylesheets, etc.)
+    let link_selector = Selector::parse("link[href]").unwrap();
+    for element in document.select(&link_selector) {
+        if let Some(href) = element.value().attr("href") {
+            if let Some((asset_path, full_url)) = resolve_asset_url(href, base_url) {
+                if !processed_urls.contains(&full_url) {
+                    processed_urls.insert(full_url.clone());
+                    assets.push((full_url.clone(), asset_path.clone()));
+                    // Rewrite to point to assets folder
+                    html_output = html_output.replace(href, &format!("assets/{}", asset_path.display()));
+                }
+            }
+        }
+    }
+
+    // Process img src attributes
+    let img_selector = Selector::parse("img[src]").unwrap();
+    for element in document.select(&img_selector) {
+        if let Some(src) = element.value().attr("src") {
+            if let Some((asset_path, full_url)) = resolve_asset_url(src, base_url) {
+                if !processed_urls.contains(&full_url) {
+                    processed_urls.insert(full_url.clone());
+                    assets.push((full_url.clone(), asset_path.clone()));
+                    // Rewrite to point to assets folder
+                    html_output = html_output.replace(src, &format!("assets/{}", asset_path.display()));
+                }
+            }
+        }
+    }
+
+    // Process embedded style tags
+    let style_selector = Selector::parse("style").unwrap();
+    for element in document.select(&style_selector) {
+        let text_content: String = element.text().collect();
+        if !text_content.is_empty() {
+            let (rewritten_css, css_assets) = parse_and_rewrite_css(&text_content, base_url)?;
+            let rewritten_css_str = String::from_utf8(rewritten_css)
+                .map_err(|e| format!("Invalid UTF-8 in CSS: {}", e))?;
+            
+            for (asset_url, asset_path) in css_assets {
+                if !processed_urls.contains(&asset_url) {
+                    processed_urls.insert(asset_url.clone());
+                    assets.push((asset_url, asset_path));
+                }
+            }
+            
+            html_output = html_output.replace(&text_content, &rewritten_css_str);
+        }
+    }
+
+    Ok((html_output.into_bytes(), assets))
+}
+
+/// Parses CSS content, extracts url() references, and rewrites them to point to asset folder
+fn parse_and_rewrite_css(
+    css: &str,
+    base_url: &reqwest::Url,
+) -> Result<(Vec<u8>, Vec<(String, PathBuf)>), String> {
+    let mut rewritten_css = css.to_string();
     let mut assets = Vec::new();
     let mut processed_urls = HashSet::new();
 
-    // Find and extract script src attributes
-    for cap in SCRIPT_SRC_REGEX.captures_iter(&html_str) {
-        if let Some(src) = cap.get(1) {
-            let src_url = src.as_str();
-            if let Some((asset_path, full_url)) = resolve_asset_url(src_url, base_url) {
+    for cap in CSS_URL_REGEX.captures_iter(css) {
+        let url_str = cap.get(1).or_else(|| cap.get(2)).map(|m| m.as_str());
+        if let Some(url_str) = url_str {
+            if let Some((asset_path, full_url)) = resolve_asset_url(url_str, base_url) {
                 if !processed_urls.contains(&full_url) {
                     processed_urls.insert(full_url.clone());
                     assets.push((full_url.clone(), asset_path.clone()));
-                    rewritten = rewritten.replace(src_url, &format!("assets/{}", asset_path.display()));
+                    let old_url = cap.get(0).unwrap().as_str();
+                    let new_url = format!("url(assets/{})", asset_path.display());
+                    rewritten_css = rewritten_css.replacen(old_url, &new_url, 1);
                 }
             }
         }
     }
 
-    // Find and extract link href attributes (stylesheets)
-    for cap in LINK_HREF_REGEX.captures_iter(&html_str) {
-        if let Some(href) = cap.get(1) {
-            let href_url = href.as_str();
-            if let Some((asset_path, full_url)) = resolve_asset_url(href_url, base_url) {
-                if !processed_urls.contains(&full_url) {
-                    processed_urls.insert(full_url.clone());
-                    assets.push((full_url.clone(), asset_path.clone()));
-                    rewritten = rewritten.replace(href_url, &format!("assets/{}", asset_path.display()));
-                }
-            }
-        }
-    }
-
-    // Find and extract img src attributes
-    for cap in IMG_SRC_REGEX.captures_iter(&html_str) {
-        if let Some(src) = cap.get(1) {
-            let src_url = src.as_str();
-            if let Some((asset_path, full_url)) = resolve_asset_url(src_url, base_url) {
-                if !processed_urls.contains(&full_url) {
-                    processed_urls.insert(full_url.clone());
-                    assets.push((full_url.clone(), asset_path.clone()));
-                    rewritten = rewritten.replace(src_url, &format!("assets/{}", asset_path.display()));
-                }
-            }
-        }
-    }
-
-    Ok((rewritten.into_bytes(), assets))
+    Ok((rewritten_css.into_bytes(), assets))
 }
 
 /// Resolves a potentially relative URL to an absolute URL and determines the local asset path
