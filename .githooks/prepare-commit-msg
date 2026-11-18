@@ -1,0 +1,13 @@
+#!/bin/sh
+
+if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+  exit 0
+fi
+
+hook_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
+if [ -t 0 ]; then
+  node "$hook_dir/commit-message.js" "$1" "${2-}"
+else
+  node "$hook_dir/commit-message.js" "$1" "${2-}" </dev/tty
+fi
