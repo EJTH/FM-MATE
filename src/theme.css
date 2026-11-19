@@ -458,9 +458,11 @@ select:focus-visible {
 }
 .repo-control {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
 }
-.repo-control input {
+.repo-control input,
+.repo-control select {
   min-width: 0;
   min-height: 40px;
   flex: 1;
@@ -471,6 +473,17 @@ select:focus-visible {
   font:
     13px "Share Tech Mono",
     monospace;
+}
+.repo-control select {
+  flex: 0 1 auto;
+  max-width: 100%;
+}
+.archive-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #a49b97;
+  font: 12px "Share Tech Mono", monospace;
 }
 .repo-control input::placeholder {
   color: #817a77;

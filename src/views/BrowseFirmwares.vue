@@ -5,13 +5,18 @@ import { LazyStore } from "@tauri-apps/plugin-store";
 import DetailedResultCard from "../components/DetailedResultCard.vue";
 import FirmwareResultCard from "../components/FirmwareResultCard.vue";
 import ConfirmationDialog from "../components/ConfirmationDialog.vue";
+import ArchiveSelect from "../components/ArchiveSelect.vue";
 import Toast from "../components/Toast.vue";
 import {
   firmwareThumbnailUrls,
+  getRepositoryPreferences,
   isNewerFirmwareVersion,
   loadFirmwareCatalog,
+  saveFirmwareArchiveCommit,
   DownloadedFirmware,
 } from "../services/firmwareCatalog";
+import { DEFAULT_FIRMWARE_REPOSITORY_URL } from "../config";
+import { archiveState, loadArchiveCommits, parseMirrorRepository } from "../services/firmwareArchive";
 import type {
   FirmwareCatalogLicense,
   FirmwareRecord,
@@ -26,6 +31,12 @@ const store = new LazyStore("settings.json", { autoSave: true });
 const firmwares = ref<FirmwareRecord[]>([]);
 const updated = ref("");
 const repositoryUrl = ref("");
+const configuredRepositoryUrl = ref("");
+const selectedArchiveCommit = ref("");
+const savingArchive = ref(false);
+const archiveAvailable = computed(() =>
+  Boolean(parseMirrorRepository(configuredRepositoryUrl.value)),
+);
 const repositoryLicense = ref<FirmwareCatalogLicense | null | undefined>();
 const search = ref("");
 const deviceFilter = ref<DeviceFilter>("all");
@@ -140,6 +151,40 @@ async function loadRepository() {
 
 onActivated(loadRepository);
 onDeactivated(() => controller.value?.abort());
+
+async function loadArchivePreference() {
+  try {
+    const preferences = await getRepositoryPreferences();
+    const url = preferences.firmwareRepositoryUrl?.trim() || DEFAULT_FIRMWARE_REPOSITORY_URL;
+    configuredRepositoryUrl.value = url;
+    selectedArchiveCommit.value = preferences.firmwareArchiveRepositoryUrl === url
+      ? preferences.firmwareArchiveCommit ?? ""
+      : "";
+    void loadArchiveCommits(url);
+  } catch {
+    toast.value = { message: "Could not load the saved archive date.", variant: "error" };
+  }
+}
+
+async function changeArchiveCommit(commit: string) {
+  if (savingArchive.value) return;
+  savingArchive.value = true;
+  try {
+    await saveFirmwareArchiveCommit(configuredRepositoryUrl.value, commit);
+    selectedArchiveCommit.value = commit;
+    selectedResult.value = null;
+    await loadRepository();
+  } catch (error) {
+    toast.value = {
+      message: error instanceof Error ? error.message : "Could not save the archive date.",
+      variant: "error",
+    };
+  } finally {
+    savingArchive.value = false;
+  }
+}
+
+onActivated(loadArchivePreference);
 
 async function loadDownloadedFirmwares() {
   try {
@@ -561,6 +606,12 @@ const visibleFirmwares = computed(() => {
         <option value="fm1">FM-1</option>
         <option value="smk37">SMK-37</option>
       </select>
+      <ArchiveSelect
+        v-if="archiveAvailable"
+        :selected="selectedArchiveCommit"
+        :disabled="savingArchive"
+        @change="changeArchiveCommit"
+      />
       <div class="result-view-toggle" role="group" aria-label="Results layout">
         <button
           type="button"
@@ -593,6 +644,12 @@ const visibleFirmwares = computed(() => {
           </svg>
         </button>
       </div>
+    </div>
+    <div v-if="archiveAvailable && archiveState.error" class="settings-feedback is-error" role="alert">
+      Could not load archive dates: {{ archiveState.error }}
+      <button type="button" class="outline-button" @click="loadArchiveCommits(configuredRepositoryUrl, true)">
+        RETRY
+      </button>
     </div>
 
     <div class="browse-options">

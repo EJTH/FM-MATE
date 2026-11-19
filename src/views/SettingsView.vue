@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";
+import { computed, onActivated, onMounted, reactive, ref } from "vue";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { LazyStore } from "@tauri-apps/plugin-store";
 import {
@@ -7,9 +7,15 @@ import {
   THUMBNAIL_CACHE_CLEARED_EVENT,
   THUMBNAIL_CACHE_NAME,
 } from "../config";
-import { clearFirmwareCatalogCache } from "../services/firmwareCatalog";
+import { clearFirmwareCatalogCache, getRepositoryPreferences } from "../services/firmwareCatalog";
+import {
+  archiveState,
+  loadArchiveCommits,
+  parseMirrorRepository,
+} from "../services/firmwareArchive";
 import ToolDownloadsSection from "../components/ToolDownloadsSection.vue";
 import AppUpdateSection from "../components/AppUpdateSection.vue";
+import ArchiveSelect from "../components/ArchiveSelect.vue";
 import Toast from "../components/Toast.vue";
 import type { MFlasherRequestPayload } from "../types/flasher";
 
@@ -18,8 +24,18 @@ const emit = defineEmits<{ openFlasher: [request: MFlasherRequestPayload] }>();
 const preferences = reactive({
   automaticallyBackupBeforeSwitching: true,
   firmwareRepositoryUrl: DEFAULT_FIRMWARE_REPOSITORY_URL,
+  firmwareArchiveCommit: "",
+  firmwareArchiveRepositoryUrl: "",
 });
 const repositoryUrlDraft = ref("");
+const archiveAvailable = computed(() =>
+  Boolean(parseMirrorRepository(preferences.firmwareRepositoryUrl)),
+);
+const selectedArchiveCommit = computed(() =>
+  preferences.firmwareArchiveRepositoryUrl === preferences.firmwareRepositoryUrl
+    ? preferences.firmwareArchiveCommit
+    : "",
+);
 const settingsLoaded = ref(false);
 const preferencesStore = new LazyStore("settings.json", { autoSave: true });
 const firmwareFolderDraft = ref("");
@@ -44,6 +60,7 @@ onMounted(async () => {
     }
     repositoryUrlDraft.value = preferences.firmwareRepositoryUrl;
     settingsLoaded.value = true;
+    void loadArchiveCommits(preferences.firmwareRepositoryUrl);
     if (isTauri()) {
       try {
         firmwareFolderDraft.value = await invoke<string>(
@@ -64,8 +81,19 @@ onMounted(async () => {
   }
 });
 
-async function savePreferences() {
+onActivated(async () => {
   if (!settingsLoaded.value) return;
+  try {
+    const saved = await getRepositoryPreferences();
+    preferences.firmwareArchiveCommit = saved.firmwareArchiveCommit ?? "";
+    preferences.firmwareArchiveRepositoryUrl = saved.firmwareArchiveRepositoryUrl ?? "";
+  } catch {
+    toast.value = { message: "Could not load saved archive date.", variant: "error" };
+  }
+});
+
+async function savePreferences() {
+  if (!settingsLoaded.value) return false;
   toast.value = null;
   try {
     if (isTauri()) {
@@ -75,8 +103,10 @@ async function savePreferences() {
       localStorage.setItem("fm-mate.preferences", JSON.stringify(preferences));
     }
     toast.value = { message: "Settings saved.", variant: "success" };
+    return true;
   } catch {
     toast.value = { message: "Could not save settings.", variant: "error" };
+    return false;
   }
 }
 
@@ -121,8 +151,32 @@ async function saveRepositoryUrl() {
     };
     return;
   }
-  preferences.firmwareRepositoryUrl = repositoryUrlDraft.value.trim();
-  await savePreferences();
+  const previous = { ...preferences };
+  const url = repositoryUrlDraft.value.trim() || DEFAULT_FIRMWARE_REPOSITORY_URL;
+  if (url !== preferences.firmwareRepositoryUrl) {
+    preferences.firmwareArchiveCommit = "";
+    preferences.firmwareArchiveRepositoryUrl = "";
+  }
+  preferences.firmwareRepositoryUrl = url;
+  if (await savePreferences()) {
+    repositoryUrlDraft.value = url;
+    void loadArchiveCommits(url);
+  } else {
+    Object.assign(preferences, previous);
+  }
+}
+
+async function saveArchiveCommit(commit: string) {
+  const previousCommit = preferences.firmwareArchiveCommit;
+  const previousUrl = preferences.firmwareArchiveRepositoryUrl;
+  preferences.firmwareArchiveCommit = commit;
+  preferences.firmwareArchiveRepositoryUrl = commit
+    ? preferences.firmwareRepositoryUrl
+    : "";
+  if (!(await savePreferences())) {
+    preferences.firmwareArchiveCommit = previousCommit;
+    preferences.firmwareArchiveRepositoryUrl = previousUrl;
+  }
 }
 
 async function clearCache() {
@@ -240,6 +294,21 @@ async function clearCache() {
             :disabled="!settingsLoaded"
           >
             SAVE URL
+          </button>
+          <ArchiveSelect
+            v-if="archiveAvailable"
+            :selected="selectedArchiveCommit"
+            :disabled="!settingsLoaded"
+            @change="saveArchiveCommit"
+          />
+        </div>
+        <p v-if="archiveAvailable && archiveState.loading" class="repo-description">
+          Loading archive dates…
+        </p>
+        <div v-if="archiveAvailable && archiveState.error" class="settings-feedback is-error" role="alert">
+          Could not load archive dates: {{ archiveState.error }}
+          <button type="button" class="outline-button" @click="loadArchiveCommits(preferences.firmwareRepositoryUrl, true)">
+            RETRY
           </button>
         </div>
       </form>

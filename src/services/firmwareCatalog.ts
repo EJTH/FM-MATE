@@ -4,6 +4,7 @@ import {
   DEFAULT_FIRMWARE_REPOSITORY_URL,
   FIRMWARE_CATALOG_REFRESHED_EVENT,
 } from "../config";
+import { archiveCatalogUrl } from "./firmwareArchive";
 
 
 export interface FirmwareRecord {
@@ -178,26 +179,50 @@ export async function getFavoriteFirmwareIds() {
 }
 
 
-export async function getRepositoryUrl() {
+interface RepositoryPreferences {
+  [key: string]: unknown;
+  firmwareRepositoryUrl?: string;
+  firmwareArchiveCommit?: string;
+  firmwareArchiveRepositoryUrl?: string;
+}
+
+export async function getRepositoryPreferences(): Promise<RepositoryPreferences> {
   if (isTauri()) {
-    const saved = await store.get<{ firmwareRepositoryUrl?: string }>(
-      "preferences",
-    );
-    return (
-      saved?.firmwareRepositoryUrl?.trim() || DEFAULT_FIRMWARE_REPOSITORY_URL
-    );
+    return (await store.get<RepositoryPreferences>("preferences")) ?? {};
   }
   const saved = localStorage.getItem("fm-mate.preferences");
-  if (!saved) return DEFAULT_FIRMWARE_REPOSITORY_URL;
+  if (!saved) return {};
   try {
-    return (
-      (
-        JSON.parse(saved) as { firmwareRepositoryUrl?: string }
-      ).firmwareRepositoryUrl?.trim() || DEFAULT_FIRMWARE_REPOSITORY_URL
-    );
+    return JSON.parse(saved) as RepositoryPreferences;
   } catch {
-    return DEFAULT_FIRMWARE_REPOSITORY_URL;
+    return {};
   }
+}
+
+export async function saveFirmwareArchiveCommit(repositoryUrl: string, commit: string) {
+  let preferences: RepositoryPreferences;
+  if (isTauri()) {
+    preferences = (await store.get<RepositoryPreferences>("preferences")) ?? {};
+  } else {
+    const saved = localStorage.getItem("fm-mate.preferences");
+    preferences = saved ? JSON.parse(saved) as RepositoryPreferences : {};
+  }
+  const configuredUrl = preferences.firmwareRepositoryUrl?.trim() || DEFAULT_FIRMWARE_REPOSITORY_URL;
+  if (configuredUrl !== repositoryUrl)
+    throw new Error("The firmware repository changed. Reload and try again.");
+  preferences.firmwareArchiveCommit = commit;
+  preferences.firmwareArchiveRepositoryUrl = commit ? configuredUrl : "";
+  if (isTauri()) {
+    await store.set("preferences", preferences);
+    await store.save();
+  } else {
+    localStorage.setItem("fm-mate.preferences", JSON.stringify(preferences));
+  }
+}
+
+export async function getRepositoryUrl() {
+  const preferences = await getRepositoryPreferences();
+  return preferences.firmwareRepositoryUrl?.trim() || DEFAULT_FIRMWARE_REPOSITORY_URL;
 }
 
 export function resolveRepositoryUrl(path: string, repositoryUrl: string) {
@@ -257,7 +282,11 @@ function toCatalog(
 export async function loadFirmwareCatalog(
   signal?: AbortSignal,
 ): Promise<FirmwareCatalog> {
-  const repositoryUrl = await getRepositoryUrl();
+  const preferences = await getRepositoryPreferences();
+  const configuredUrl = preferences.firmwareRepositoryUrl?.trim() || DEFAULT_FIRMWARE_REPOSITORY_URL;
+  const repositoryUrl = preferences.firmwareArchiveRepositoryUrl === configuredUrl
+    ? archiveCatalogUrl(configuredUrl, preferences.firmwareArchiveCommit ?? "")
+    : configuredUrl;
   const cache = await getCache();
   const matchingCache =
     cache?.repositoryUrl === repositoryUrl &&

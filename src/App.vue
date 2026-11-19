@@ -17,8 +17,10 @@ import { getAppRelease } from "./services/appRelease";
 import {
   findFirmwareUpdate,
   getInstalledFirmwares,
+  getRepositoryUrl,
   loadFirmwareCatalog,
 } from "./services/firmwareCatalog";
+import { loadArchiveCommits } from "./services/firmwareArchive";
 import type {
   DownloadedFirmware,
   FirmwareCatalog,
@@ -159,6 +161,11 @@ function onFirmwareCatalogRefreshed(event: Event) {
 }
 
 onMounted(() => {
+  void getRepositoryUrl()
+    .then(loadArchiveCommits)
+    .catch((error: unknown) =>
+      console.error("Could not load the firmware repository settings:", error),
+    );
   window.addEventListener(
     FIRMWARE_CATALOG_REFRESHED_EVENT,
     onFirmwareCatalogRefreshed,
