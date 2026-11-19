@@ -1024,24 +1024,3 @@ pub(super) fn launch_editor_in_chrome(url: String) -> bool {
     })
 }
 
-#[tauri::command]
-pub(super) fn set_current_firmware_version(app: AppHandle, id: String, version: String) -> Result<(), String> {
-    ensure_safe_name(&id)?;
-    ensure_safe_name(&version)?;
-    let firmware_dir = firmware_root(&app)?.join(id);
-    if !firmware_dir.join(&version).join("firmware.fwsc").is_file() {
-        return Err("That firmware version is not installed.".into());
-    }
-    let info_path = firmware_dir.join("info.json");
-    let mut info = std::fs::read(&info_path)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-        .unwrap_or_else(|| serde_json::json!({}));
-    let object = info
-        .as_object_mut()
-        .ok_or("Firmware info must be a JSON object.")?;
-    object.insert("currentVersion".into(), serde_json::Value::String(version));
-    let bytes = serde_json::to_vec_pretty(&info).map_err(|error| error.to_string())?;
-    std::fs::write(info_path, bytes)
-        .map_err(|error| format!("Could not update firmware info: {error}"))
-}

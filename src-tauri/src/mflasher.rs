@@ -26,11 +26,11 @@ fn m_flasher_executable(app: &AppHandle) -> Result<PathBuf, String> {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct MFlasherFindResult { output: String, device_found: bool, download_mode: bool, device_name: Option<String> }
+pub(super) struct MFlasherFindResult { output: String, device_found: bool, download_mode: bool, device_name: Option<String>, state: Option<String> }
 
 fn output_indicates_download_mode(output: &str) -> bool {
     let output = output.to_ascii_lowercase();
-    output.contains("storagedevice") || output.contains("physicaldrive") || output.contains("uboot")
+    output.contains("in download mode") || output.contains("storagedevice") || output.contains("physicaldrive") || output.contains("uboot")
 }
 
 fn ensure_device_in_download_mode(executable: &Path) -> Result<String, String> {
@@ -61,19 +61,24 @@ pub(super) fn m_flasher_find(app: AppHandle) -> Result<MFlasherFindResult, Strin
     let executable = m_flasher_executable(&app)?;
     let output = Command::new(executable).arg("find").output().map_err(|error| format!("Could not run M-Flasher find: {error}"))?;
     let text = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)).trim().to_string();
-    let device_name = text.lines().find_map(|line| {
-        let line = line.trim();
-        if line.is_empty() { return None; }
-        let lower = line.to_lowercase();
-        if let Some(start) = lower.find("midi") { return Some(line[start + 4..].trim().to_string()); }
-        if lower.contains("storagedevice") { return Some("StorageDevice".to_string()); }
-        None
-    });
-    let lower_text = text.to_lowercase();
-    let download_mode = output_indicates_download_mode(&text);
-    let device_found = device_name.is_some() || lower_text.contains("physicaldrive");
-    if !output.status.success() && text.is_empty() { return Err("M-Flasher could not find a connected device.".into()); }
-    Ok(MFlasherFindResult { output: text, device_found, download_mode, device_name })
+    if !output.status.success() {
+        return Err(if text.is_empty() { "M-Flasher could not find a connected device.".into() } else { text });
+    }
+    let devices: Vec<_> = text.lines().filter_map(|line| {
+        let (path, name) = line.trim().split_once('\t')?;
+        let (path, name) = (path.trim(), name.trim());
+        if path.is_empty() || name.is_empty() { return None; }
+        let state = if path.eq_ignore_ascii_case("midi") { "midi" } else { "usb" };
+        Some((state, name.to_string()))
+    }).collect();
+    if devices.len() > 1 {
+        return Err("M-Flasher found multiple devices. Connect only one device at a time.".into());
+    }
+    let device_found = !devices.is_empty();
+    let download_mode = devices.first().map(|(state, _)| *state == "usb").unwrap_or(false);
+    let state = devices.first().map(|(state, _)| (*state).to_string());
+    let device_name = devices.into_iter().next().map(|(_, name)| name);
+    Ok(MFlasherFindResult { output: text, device_found, download_mode, device_name, state })
 }
 
 #[tauri::command]
@@ -410,7 +415,6 @@ fn m_flasher_flash_save_sync(
     let stderr_text = stderr_reader.join().map_err(|_| "Could not collect M-Flasher progress.")?;
     let text = format!("{stdout_text}{stderr_text}").trim().to_string();
     if !status.success() { return Err(if text.is_empty() { format!("M-Flasher {command_name} failed.") } else { text }); }
-    crate::firmwarehub::set_current_firmware_version(app, firmware_id, version)?;
     Ok(if text.is_empty() { format!("Successfully restored/flashed.") } else { text })
 }
 
@@ -456,7 +460,6 @@ fn m_flasher_flash_firmware_sync(
     let text = flash_firmware_sequence(v15_file.as_deref(), &firmware_file, |file| {
         flash_firmware_file(&app, &executable, file, &operation_id)
     })?;
-    crate::firmwarehub::set_current_firmware_version(app, firmware_id, version)?;
     Ok(text)
 }
 

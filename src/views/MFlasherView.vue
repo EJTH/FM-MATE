@@ -5,7 +5,12 @@ import { listen } from "@tauri-apps/api/event";
 import LcdDisplay from "../components/LcdDisplay.vue";
 import ConfirmationDialog from "../components/ConfirmationDialog.vue";
 import PromptDialog from "../components/PromptDialog.vue";
-import { findConnectedFirmwareVersion } from "../services/firmwareCatalog";
+import {
+  clearUnitFirmware,
+  getUnitFirmware,
+  setActiveUnit,
+  setUnitFirmware,
+} from "../services/unitFirmware";
 import type {
   MFlasherLcdState,
   MFlasherRequest,
@@ -24,6 +29,7 @@ interface FoundDevice {
   deviceFound: boolean;
   downloadMode: boolean;
   deviceName: string | null;
+  state: "usb" | "midi" | null;
 }
 interface BackupOption {
   key: string;
@@ -36,14 +42,12 @@ interface ScannedFirmware {
   id: string;
   name: string;
   version: string;
-  currentVersion?: string | null;
-  downloadedAt?: string;
   info?: Record<string, unknown>;
-  versionInfo?: Record<string, unknown> | null;
 }
 
 const devices = ref<ScannedFirmware[]>([]);
 const detected = ref<FoundDevice | null>(null);
+const unitId = ref<string | null>(null);
 const selectedBackupTarget = ref("");
 const busyAction = ref("");
 const terminalLines = ref<string[]>([]);
@@ -149,45 +153,14 @@ const pendingActionReady = computed(() => {
   }
   return true;
 });
-const matchingFirmware = computed(() => {
-  const raw = detected.value?.deviceName ?? "";
-  if (!raw || raw.toLowerCase() === "storagedevice") return null;
-  const normalized = raw
-    .toLocaleLowerCase()
-    .replace(/\s*\([^)]*\).*$/, "")
-    .replace(/\s+(fm-1|smk-37).*$/, "")
-    .trim();
-  return (
-    devices.value
-      .filter(
-        (firmware) =>
-          normalized.includes(firmware.name.toLocaleLowerCase()) ||
-          firmware.name.toLocaleLowerCase().includes(normalized),
-      )
-      .sort(
-        (a, b) =>
-          b.name.length - a.name.length ||
-          Number(b.version === b.currentVersion) -
-            Number(a.version === a.currentVersion),
-      )[0] ?? null
-  );
-});
 const displayTitle = computed(() => {
   if (!detected.value?.deviceFound) return "NO UNIT";
   const raw = detected.value.deviceName ?? "";
-  const board =
-    raw.match(/SMK-37|FM-1/i)?.[0]?.toUpperCase() ||
-    selectedBackupOption.value?.model ||
-    "";
+  const board = selectedBackupOption.value?.model || "";
   const firmware =
     infoFirmware.value ||
-    matchingFirmware.value?.name ||
-    (detected.value.downloadMode
-      ? selectedBackupOption.value?.firmwareName
-      : raw
-          .replace(/\s*\([^)]*\).*$/, "")
-          .replace(/\s+(fm-1|smk-37).*$/i, "")
-          .trim());
+    selectedBackupOption.value?.firmwareName ||
+    "";
   const request = props.pendingAction;
   if (
     request &&
@@ -209,6 +182,7 @@ const displayTitle = computed(() => {
 const connectionStatus = computed(() => {
   if (busyAction.value === "find") return "SCANNING DEVICE";
   if (busyAction.value === "download-mode") return "ENTERING DOWNLOAD MODE";
+  if (busyAction.value === "info") return "READING DEVICE INFO";
   if (detected.value?.downloadMode) return "DOWNLOAD MODE";
   if (detected.value?.deviceFound) return "CONNECTED";
   return "NO DEVICE";
@@ -277,7 +251,9 @@ const lcdMessageClass = computed(() =>
 const lcdState = computed<MFlasherLcdState>(() => ({
   title: displayTitle.value,
   message: lcdMessage.value,
-  connection: "USB",
+  connection: detected.value?.deviceName
+    ? `${detected.value.state?.toUpperCase() ?? "USB"}: ${detected.value.deviceName}`
+    : "NO DEVICE",
   hint: lcdHint.value,
   progress:
     busyAction.value === "backup"
@@ -445,6 +421,7 @@ function markDownloadModeFromOutput(output: string): boolean {
     deviceFound: true,
     downloadMode: true,
     deviceName: detected.value?.deviceName ?? null,
+    state: detected.value?.state ?? null,
   };
   return true;
 }
@@ -456,112 +433,73 @@ function modelFromProduct(product: unknown): string {
   return "";
 }
 
-function matchTarget(firmware: ScannedFirmware | null) {
-  if (!firmware) return false;
-  selectedBackupTarget.value = `${firmware.id}::${firmware.version}`;
-  localStorage.setItem(
-    "fm-mate.lastFlashedFirmwareTarget",
-    selectedBackupTarget.value,
-  );
-  return true;
-}
-
-function restoreBackupTarget() {
-  if (
-    backupOptions.value.some(
-      (option) => option.key === selectedBackupTarget.value,
-    )
-  )
-    return;
-  const remembered =
-    localStorage.getItem("fm-mate.lastFlashedFirmwareTarget") ?? "";
-  if (backupOptions.value.some((option) => option.key === remembered)) {
-    selectedBackupTarget.value = remembered;
-    return;
-  }
-  const preferred = [...devices.value].sort((a, b) => {
-    const aCurrent = a.version === a.currentVersion;
-    const bCurrent = b.version === b.currentVersion;
-    if (aCurrent !== bCurrent) return Number(bCurrent) - Number(aCurrent);
-    return Date.parse(b.downloadedAt ?? "") - Date.parse(a.downloadedAt ?? "");
-  })[0];
-  selectedBackupTarget.value = preferred
-    ? `${preferred.id}::${preferred.version}`
-    : "";
-  if (selectedBackupTarget.value)
-    localStorage.setItem(
-      "fm-mate.lastFlashedFirmwareTarget",
-      selectedBackupTarget.value,
-    );
-}
-
 function rememberBackupTarget() {
-  if (selectedBackupTarget.value)
-    localStorage.setItem(
-      "fm-mate.lastFlashedFirmwareTarget",
-      selectedBackupTarget.value,
-    );
+  if (!unitId.value) return;
+  try {
+    const option = selectedBackupOption.value;
+    if (option) {
+      setUnitFirmware(unitId.value, { id: option.firmwareId, version: option.version });
+    } else {
+      clearUnitFirmware(unitId.value);
+    }
+  } catch (error) {
+    const message = `Could not save the unit's firmware selection: ${String(error)}`;
+    lastError.value = message;
+    lcdStatusError.value = message;
+    appendTerminal("selection", message);
+  }
+}
+
+function disconnectDevice() {
+  detected.value = null;
+  unitId.value = null;
+  selectedBackupTarget.value = "";
+  infoFirmware.value = "";
+  infoModel.value = "";
+  setActiveUnit(null);
 }
 
 async function findDevice() {
   if (busyAction.value) return;
+  disconnectDevice();
   busyAction.value = "find";
   lastError.value = "";
+  clearLcdFeedback();
   try {
     if (!isTauri())
       throw new Error(
         "M-Flasher device detection is available in the desktop app.",
       );
     devices.value = await invoke<ScannedFirmware[]>("scan_installed_firmwares");
-    restoreBackupTarget();
     const result = await invoke<FoundDevice>("m_flasher_find");
-    const previous = detected.value;
-    if (
-      previous?.deviceName !== result.deviceName ||
-      previous?.downloadMode !== result.downloadMode
-    ) {
-      infoFirmware.value = "";
-      infoModel.value = "";
-    }
-    detected.value = result;
     appendTerminal("find", result.output || "No device found.");
-    const connectedFirmware =
-      result.deviceFound && !result.downloadMode && result.deviceName
-        ? findConnectedFirmwareVersion(result.deviceName, devices.value)
-        : null;
-    if (
-      connectedFirmware &&
-      connectedFirmware.currentVersion !== connectedFirmware.version
-    ) {
-      try {
-        await invoke("set_current_firmware_version", {
-          id: connectedFirmware.id,
-          version: connectedFirmware.version,
-        });
-        for (const firmware of devices.value) {
-          if (firmware.id === connectedFirmware.id)
-            firmware.currentVersion = connectedFirmware.version;
-        }
-      } catch (error) {
-        const message = `Could not update the current firmware version: ${String(error)}`;
-        console.error(message);
-        appendTerminal("find", message);
-        lcdStatusError.value = message;
-      }
-    }
-    if (!matchTarget(connectedFirmware ?? matchingFirmware.value))
-      restoreBackupTarget();
-    if (!result.deviceFound)
+    if (!result.deviceFound) {
       lastError.value = "No compatible device was found.";
-    if (result.deviceFound && !result.downloadMode) lastError.value = "";
+      return;
+    }
+    if (!result.downloadMode) {
+      busyAction.value = "download-mode";
+      const output = await invoke<string>("m_flasher_command", { action: "download-mode" });
+      appendTerminal("download-mode", output);
+    }
+    busyAction.value = "info";
+    const output = await invoke<string>("m_flasher_command", { action: "info" });
+    appendTerminal("info", output);
+    const id = output.match(/^\s*unit id\s+([0-9a-f]+)\s*$/im)?.[1]?.toUpperCase();
+    if (!id) throw new Error("M-Flasher did not report a usable unit id.");
+    infoModel.value = output.match(/^\s*model\s+(.+)$/im)?.[1]?.trim() ?? "";
+    infoFirmware.value = output.match(/^\s*firmware\s+(.+)$/im)?.[1]?.trim() ?? "";
+    const firmware = getUnitFirmware(id);
+    const target = firmware ? `${firmware.id}::${firmware.version}` : "";
+    selectedBackupTarget.value = backupOptions.value.some((option) => option.key === target)
+      ? target
+      : "";
+    unitId.value = id;
+    setActiveUnit(id);
+    detected.value = { ...result, downloadMode: true };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    detected.value = {
-      output: message,
-      deviceFound: false,
-      downloadMode: false,
-      deviceName: null,
-    };
+    disconnectDevice();
     appendTerminal("find", message);
     lastError.value = message;
     lcdStatusError.value = message;
@@ -586,15 +524,14 @@ async function runCommand(action: "restart" | "download-mode" | "info") {
     if (action === "download-mode") {
       markDownloadModeFromOutput(output);
     } else if (action === "restart") {
-      await new Promise((resolve) => window.setTimeout(resolve, 1200));
-      busyAction.value = "";
-      await findDevice();
+      disconnectDevice();
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     lastError.value = message;
     lcdStatusError.value = message;
     appendTerminal(action, message);
+    if (/no unit in download mode found/i.test(message)) disconnectDevice();
   } finally {
     busyAction.value = "";
   }
@@ -776,10 +713,14 @@ async function flashFirmwareRequest(
       `firmware ${request.firmwareName} ${request.version}`,
       output,
     );
-    localStorage.setItem(
-      "fm-mate.lastFlashedFirmwareTarget",
-      `${request.firmwareId}::${request.version}`,
-    );
+    if (unitId.value) {
+      try {
+        setUnitFirmware(unitId.value, { id: request.firmwareId, version: request.version });
+      } catch (error) {
+        throw new Error(`Firmware was flashed, but its unit association could not be saved: ${String(error)}`);
+      }
+    }
+    disconnectDevice();
     showLcdCompletion("FIRMWARE FLASHED!");
     return true;
   } catch (error) {
@@ -825,7 +766,6 @@ async function flashAfterSwitchBackup() {
   if (request?.type !== "switch-firmware" || switchStage.value !== "flash")
     return;
   if (await flashFirmwareRequest(request)) {
-    await findDevice();
     emit("actionComplete", request.requestId);
   }
 }
@@ -836,7 +776,6 @@ async function confirmBackupAndFlash() {
     return;
   if (!(await prepareSwitchBackup())) return;
   if (await flashFirmwareRequest(request)) {
-    await findDevice();
     emit("actionComplete", request.requestId);
   }
 }
@@ -879,6 +818,14 @@ async function handlePendingAction(request: MFlasherRequest) {
       });
       flashProgress.value = 100;
       appendTerminal(`flash ${request.save.fileName}`, output);
+      if (unitId.value) {
+        try {
+          setUnitFirmware(unitId.value, { id: request.save.firmwareId, version: request.save.version });
+        } catch (error) {
+          throw new Error(`Backup was flashed, but its unit association could not be saved: ${String(error)}`);
+        }
+      }
+      disconnectDevice();
       showLcdCompletion(
         request.save.fileName.toLocaleLowerCase().endsWith(".fwsc")
           ? "FIRMWARE FLASHED!"
@@ -903,7 +850,7 @@ async function handlePendingAction(request: MFlasherRequest) {
   } finally {
     unlisten?.();
     busyAction.value = "";
-    if (!lastError.value) await findDevice();
+    if (!lastError.value && detected.value?.deviceFound) await findDevice();
     emit("actionComplete", request.requestId);
   }
 }
@@ -1132,7 +1079,7 @@ function cancelPendingAction() {
           FIRMWARE TO ASSOCIATE WITH THIS SAVE
           <select
             v-model="selectedBackupTarget"
-            :disabled="!!busyAction || !backupOptions.length"
+            :disabled="!!busyAction || !unitId || !backupOptions.length"
             @change="rememberBackupTarget"
           >
             <option value="">Select installed firmware version</option>

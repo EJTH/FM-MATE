@@ -14,6 +14,7 @@ import SettingsView from "./views/SettingsView.vue";
 import MFlasherView from "./views/MFlasherView.vue";
 import { appVersion, isNewerAppVersion } from "./services/appVersion";
 import { getAppRelease } from "./services/appRelease";
+import { setActiveUnit } from "./services/unitFirmware";
 import {
   findFirmwareUpdate,
   getInstalledFirmwares,
@@ -161,6 +162,7 @@ function onFirmwareCatalogRefreshed(event: Event) {
 }
 
 onMounted(() => {
+  setActiveUnit(null);
   void getRepositoryUrl()
     .then(loadArchiveCommits)
     .catch((error: unknown) =>

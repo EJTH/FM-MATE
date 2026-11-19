@@ -23,6 +23,8 @@ import type { MFlasherRequestPayload } from "../types/flasher";
 import { finishEmulatorSession } from "../services/emulatorSession";
 import type { EmulatorSavePrompt } from "../services/emulatorSession";
 import FavoriteButton from "../components/FavoriteButton.vue";
+import { getActiveUnitFirmware } from "../services/unitFirmware";
+import type { UnitFirmware } from "../services/unitFirmware";
 
 const props = defineProps<{
   openFirmwareId?: string | null;
@@ -38,6 +40,7 @@ const emit = defineEmits<{
 
 const store = new LazyStore("settings.json", { autoSave: true });
 const scannedFirmwares = ref<ScannedFirmware[]>([]);
+const activeUnitFirmware = ref<UnitFirmware | null>(null);
 const favoriteIds = ref<string[]>([]);
 const catalogFirmwares = ref<FirmwareRecord[]>([]);
 const catalogRepositoryUrl = ref("");
@@ -82,7 +85,9 @@ const firmwares = computed<InstalledFirmware[]>(() => {
         kind: item.kind,
         description: item.description,
         author: item.author,
-        currentVersion: item.currentVersion,
+        currentVersion: activeUnitFirmware.value?.id === item.id
+          ? activeUnitFirmware.value.version
+          : null,
         thumbnailData: item.thumbnailData,
         info: item.info,
         installedVersions: [],
@@ -139,6 +144,7 @@ async function loadDownloads() {
     ]);
     scannedFirmwares.value = firmwares;
     favoriteIds.value = ids;
+    activeUnitFirmware.value = getActiveUnitFirmware();
     return true;
   } catch {
     loadError.value = true;

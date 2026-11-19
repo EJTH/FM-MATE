@@ -120,7 +120,6 @@ pub fn run() {
             firmwarehub::serve_firmware_editor,
             firmwarehub::launch_editor_in_chrome,
             firmwarehub::scan_installed_firmwares,
-            firmwarehub::set_current_firmware_version,
             firmwarehub::scan_installed_saves,
             firmwarehub::delete_installed_save,
             tooldownload::get_tools_status,
