@@ -2,6 +2,7 @@
 import { onMounted, ref } from "vue";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import ToolDownloadCard from "./ToolDownloadCard.vue";
+import Toast from "./Toast.vue";
 
 withDefaults(defineProps<{ title?: string; description?: string }>(), {
   title: "EXTRA DOWNLOADS",
@@ -29,8 +30,10 @@ const toolStatuses = ref<
   Record<string, { installed: boolean; version: string | null }>
 >({});
 const toolBusyId = ref("");
-const toolMessage = ref("");
-const toolError = ref(false);
+const toast = ref<{
+  message: string;
+  variant: "success" | "error" | "info";
+} | null>(null);
 
 onMounted(() => {
   if (isTauri()) void loadTools();
@@ -53,37 +56,57 @@ async function loadTools() {
     emit("mFlasherStatus", mFlasher.installed);
   } catch (error) {
     emit("mFlasherStatus", null);
-    toolError.value = true;
-    toolMessage.value =
-      error instanceof Error
-        ? error.message
-        : typeof error === "string"
-          ? error
-          : "Could not check downloaded tools.";
+    toast.value = {
+      message:
+        error instanceof Error
+          ? error.message
+          : typeof error === "string"
+            ? error
+            : "Could not check downloaded tools.",
+      variant: "error",
+    };
   }
 }
 
 async function runToolAction(id: string) {
   if (!isTauri()) return;
   toolBusyId.value = id;
-  toolMessage.value = "";
-  toolError.value = false;
+  const name = tools.find((tool) => tool.id === id)?.name ?? id;
+  toast.value = {
+    message: `Checking or downloading ${name}...`,
+    variant: "info",
+  };
   try {
     const result = await invoke<{
       status: "downloaded" | "updated" | "up-to-date";
       version: string;
     }>("check_or_update_tool", { id });
-    const name = tools.find((tool) => tool.id === id)?.name ?? id;
     if (result.status === "up-to-date")
-      toolMessage.value = `${name} is up to date (${result.version}).`;
+      toast.value = {
+        message: `${name} is up to date (${result.version}).`,
+        variant: "info",
+      };
     else if (result.status === "updated")
-      toolMessage.value = `Updated ${name} to ${result.version}.`;
-    else toolMessage.value = `Downloaded ${name} ${result.version}.`;
+      toast.value = {
+        message: `Updated ${name} to ${result.version}.`,
+        variant: "success",
+      };
+    else
+      toast.value = {
+        message: `Downloaded ${name} ${result.version}.`,
+        variant: "success",
+      };
     await loadTools();
   } catch (error) {
-    toolError.value = true;
-    toolMessage.value =
-      error instanceof Error ? error.message : "Could not download the tool.";
+    toast.value = {
+      message:
+        error instanceof Error
+          ? error.message
+          : typeof error === "string"
+            ? error
+            : "Could not download the tool.",
+      variant: "error",
+    };
   } finally {
     toolBusyId.value = "";
   }
@@ -109,13 +132,12 @@ async function runToolAction(id: string) {
     <p v-if="!isTauri()" class="settings-feedback">
       Tool downloads are available in the desktop app.
     </p>
-    <p
-      v-if="toolMessage"
-      class="settings-feedback"
-      :class="{ 'is-error': toolError }"
-      role="status"
-    >
-      {{ toolMessage }}
-    </p>
+    <Toast
+      v-if="toast"
+      :message="toast.message"
+      :variant="toast.variant"
+      :reset-key="toast"
+      @dismiss="toast = null"
+    />
   </section>
 </template>
