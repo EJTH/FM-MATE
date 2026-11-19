@@ -48,6 +48,7 @@ export interface ScannedFirmware {
   currentVersion?: string | null;
   thumbnailData?: string | null;
   info: Record<string, unknown>;
+  versionInfo?: Record<string, unknown> | null;
   editorPath?: string | null;
   sha256?: string | null;
   pkg: string;
@@ -131,6 +132,38 @@ export function findFirmwareUpdate(
       }),
     )[0];
   return latest && isNewerFirmwareVersion(latest, downloaded) ? latest : null;
+}
+
+export function findConnectedFirmwareVersion<
+  T extends {
+    id: string;
+    version: string;
+    versionInfo?: Record<string, unknown> | null;
+  },
+>(deviceName: string, installed: T[]): T | null {
+  const matches = installed.filter((firmware) => {
+    const ident = firmware.versionInfo?.ident;
+    const product = firmware.versionInfo?.product;
+    if (
+      typeof ident !== "string" ||
+      !ident.trim() ||
+      typeof product !== "string" ||
+      !product.trim()
+    ) return false;
+    let pattern: RegExp;
+    try {
+      pattern = new RegExp(`^(?:${ident})$`);
+    } catch (error) {
+      console.warn(`Invalid firmware ident for ${firmware.id}:`, error);
+      return false;
+    }
+    if (!pattern.test(product)) return false;
+    const escapedProduct = product.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(
+      `(?:^|[^a-zA-Z0-9_])${escapedProduct}(?=$|[^a-zA-Z0-9_])`,
+    ).test(deviceName);
+  });
+  return matches.length === 1 ? matches[0] : null;
 }
 
 export async function getInstalledFirmwares() {
