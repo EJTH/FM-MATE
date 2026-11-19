@@ -14,6 +14,7 @@ import type { FirmwareRecord } from '../services/firmwareCatalog'
 import type { MFlasherRequestPayload } from '../types/flasher'
 import { finishEmulatorSession } from '../services/emulatorSession'
 import type { EmulatorSavePrompt } from '../services/emulatorSession'
+import FavoriteButton from '../components/FavoriteButton.vue'
 
 const props = defineProps<{ openFirmwareId?: string | null }>()
 const emit = defineEmits<{
@@ -368,93 +369,261 @@ async function installFirmware(firmware: InstalledFirmware, version: string) {
 <template>
   <section class="view-panel">
     <div class="view-heading">
-      <div><p class="eyebrow">LOCAL LIBRARY</p><h1>Downloaded Firmwares</h1></div>
+      <div>
+        <p class="eyebrow">LOCAL LIBRARY</p>
+        <h1>Downloaded Firmwares</h1>
+      </div>
       <div class="downloaded-heading-actions">
-        <button class="outline-button" type="button" :disabled="openingFolder" @click="openFirmwareFolder">{{ openingFolder ? 'OPENING…' : 'FIRMWARE FOLDER ↗' }}</button>
+        <button class="outline-button" type="button" :disabled="openingFolder" @click="openFirmwareFolder">
+          {{ openingFolder ? 'OPENING…' : 'FIRMWARE FOLDER ↗' }}
+        </button>
         <button class="outline-button" type="button" :disabled="loading" @click="loadDownloads">REFRESH</button>
       </div>
     </div>
     <p v-if="folderError" class="folder-error" role="status">{{ folderError }}</p>
     <p v-if="actionMessage" class="action-message" role="status">{{ actionMessage }}</p>
 
-    <div v-if="loading" class="library-state"><h2>Scanning firmware folder…</h2></div>
-    <div v-else-if="loadError" class="library-state"><h2>Could not read installed firmwares</h2><p>Try refreshing the firmware folder scan.</p></div>
-    <div v-else-if="!firmwares.length" class="library-state"><span class="empty-mark">↓</span><h2>No firmware installed</h2><p>Downloaded firmware packages will appear here.</p></div>
+    <div v-if="loading" class="library-state">
+      <h2>Scanning firmware folder…</h2>
+    </div>
+    <div v-else-if="loadError" class="library-state">
+      <h2>Could not read installed firmwares</h2>
+      <p>Try refreshing the firmware folder scan.</p>
+    </div>
+    <div v-else-if="!firmwares.length" class="library-state"><span class="empty-mark">↓</span>
+      <h2>No firmware installed</h2>
+      <p>Downloaded firmware packages will appear here.</p>
+    </div>
     <div v-else class="installed-grid">
-      <article v-for="firmware in sortedFirmwares" :key="firmware.id" class="installed-card" tabindex="0" :aria-label="`Open details for ${firmware.name}${availableUpdate(firmware) ? ' - New version!' : ''}`" @click="selectedFirmware = firmware" @keydown.enter.self="selectedFirmware = firmware" @keydown.space.prevent.self="selectedFirmware = firmware">
+      <article v-for="firmware in sortedFirmwares" :key="firmware.id" class="installed-card" tabindex="0"
+        :aria-label="`Open details for ${firmware.name}${availableUpdate(firmware) ? ' - New version!' : ''}`"
+        @click="selectedFirmware = firmware" @keydown.enter.self="selectedFirmware = firmware"
+        @keydown.space.prevent.self="selectedFirmware = firmware">
         <div class="installed-card__thumbnail">
-          <img v-if="firmware.thumbnailData && !availableUpdate(firmware)" :src="firmware.thumbnailData" :alt="`${firmware.name} thumbnail`" />
-          <FirmwareThumbnail v-else :id="firmware.id" :card="availableUpdate(firmware)?.card" :version="availableUpdate(firmware)?.version || firmware.installedVersions[0]?.version" :fallback-data="firmware.thumbnailData" :repository-url="catalogRepositoryUrl" :alt="`${firmware.name} thumbnail`" />
+          <img v-if="firmware.thumbnailData && !availableUpdate(firmware)" :src="firmware.thumbnailData"
+            :alt="`${firmware.name} thumbnail`" />
+          <FirmwareThumbnail v-else :id="firmware.id" :card="availableUpdate(firmware)?.card"
+            :version="availableUpdate(firmware)?.version || firmware.installedVersions[0]?.version"
+            :fallback-data="firmware.thumbnailData" :repository-url="catalogRepositoryUrl"
+            :alt="`${firmware.name} thumbnail`" />
           <NewVersionBanner v-if="availableUpdate(firmware)" />
         </div>
         <h2 class="installed-card__name">{{ firmware.name }}</h2>
         <p class="installed-card__description">{{ firmware.description || 'No description provided.' }}</p>
         <div class="installed-card__versions">
           <strong>INSTALLED VERSIONS</strong>
-          <div><span v-for="version in firmware.installedVersions" :key="version.version" class="installed-version">{{ version.version }}{{ firmware.currentVersion === version.version ? ' · CURRENT' : '' }}</span></div>
+          <div><span v-for="version in firmware.installedVersions" :key="version.version" class="installed-version">{{
+            version.version }}{{ firmware.currentVersion === version.version ? ' · CURRENT' : '' }}</span></div>
         </div>
         <div class="installed-card__buttons">
-          <button class="favorite-button" :class="{ 'is-favorite': favoriteIds.includes(firmware.id) }" type="button" :aria-pressed="favoriteIds.includes(firmware.id)" :aria-label="favoriteIds.includes(firmware.id) ? `Remove ${firmware.name} from favorites` : `Add ${firmware.name} to favorites`" :title="favoriteIds.includes(firmware.id) ? 'Remove favorite' : 'Add favorite'" @click.stop="toggleFavorite(firmware.id)">{{ favoriteIds.includes(firmware.id) ? '♥' : '♡' }}</button>
-          <button class="outline-button" type="button" :disabled="!hasEditor(firmware)" @click.stop="openEditor(firmware)">OPEN EDITOR</button>
-          <InstallDropdown :versions="firmware.installedVersions.map((item) => item.version)" @select="installFirmware(firmware, $event)" />
+          <FavoriteButton :favorited="favoriteIds.includes(firmware.id)" :label="firmware.name"
+            @update:favorited="toggleFavorite(firmware.id)" />
+          <button class="outline-button" type="button" :disabled="!hasEditor(firmware)"
+            @click.stop="openEditor(firmware)">OPEN EDITOR</button>
+          <InstallDropdown :versions="firmware.installedVersions.map((item) => item.version)"
+            @select="installFirmware(firmware, $event)" />
         </div>
       </article>
     </div>
 
-    <FirmwareDetails
-      v-if="selectedFirmware"
-      :firmware="selectedFirmware"
-      :repository-url="catalogRepositoryUrl"
-      :update="availableUpdate(selectedFirmware)"
-      :update-downloading="updateDownloadingId === selectedFirmware.id"
-      :update-message="updateMessage"
-      :emulating="emulating"
-      :catalog-notice="catalogNotice"
-      @close="selectedFirmware = null"
-      @open-in-emulator="openInEmulator(selectedFirmware, $event)"
-      @open-editor="openEditor(selectedFirmware, $event)"
-      @delete-version="deleteVersion(selectedFirmware, $event)"
-      @open-saves="openSaves"
-      @install-version="installFirmware(selectedFirmware, $event)"
-      @download-update="downloadUpdate(selectedFirmware)"
-      @open-release="openReleaseNotes(selectedFirmware)"
-    />
-    <ConfirmationDialog
-      v-if="pendingVersionDelete"
-      title="DELETE FIRMWARE VERSION?"
+    <FirmwareDetails v-if="selectedFirmware" :firmware="selectedFirmware" :repository-url="catalogRepositoryUrl"
+      :update="availableUpdate(selectedFirmware)" :update-downloading="updateDownloadingId === selectedFirmware.id"
+      :update-message="updateMessage" :emulating="emulating" :catalog-notice="catalogNotice"
+      @close="selectedFirmware = null" @open-in-emulator="openInEmulator(selectedFirmware, $event)"
+      @open-editor="openEditor(selectedFirmware, $event)" @delete-version="deleteVersion(selectedFirmware, $event)"
+      @open-saves="openSaves" @install-version="installFirmware(selectedFirmware, $event)"
+      @download-update="downloadUpdate(selectedFirmware)" @open-release="openReleaseNotes(selectedFirmware)" />
+    <ConfirmationDialog v-if="pendingVersionDelete" title="DELETE FIRMWARE VERSION?"
       :message="`Delete ${pendingVersionDelete.firmware.name} ${pendingVersionDelete.version.version}? This also deletes its saves and downloaded editor.`"
-      confirm-label="DELETE VERSION"
-      confirm-variant="danger"
-      @confirm="confirmDeleteVersion"
-      @secondary="pendingVersionDelete = null"
-      @cancel="pendingVersionDelete = null"
-    />
+      confirm-label="DELETE VERSION" confirm-variant="danger" @confirm="confirmDeleteVersion"
+      @secondary="pendingVersionDelete = null" @cancel="pendingVersionDelete = null" />
   </section>
 </template>
 
 <style>
-.downloaded-heading-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.folder-error, .action-message { margin: -12px 0 14px; color: #ed9a7b; font: 12px 'Share Tech Mono', monospace; }
-.library-state { min-height: 42vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 25px; text-align: center; background: rgb(40 37 36 / 70%); border: 1px solid #48413f; }
-.library-state h2 { margin: 0 0 5px; color: #e3dcd2; font-size: 21px; font-weight: 600; }
-.library-state p { margin: 0; color: #a49b97; font: 13px 'Share Tech Mono', monospace; }
-.installed-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
-.installed-card { display: flex; min-width: 0; flex-direction: column; padding: 0 14px 14px; background: rgb(40 37 36 / 78%); border: 1px solid #48413f; cursor: pointer; transition: border-color .15s, background .15s; }
-.installed-card:hover, .installed-card:focus-visible { background: rgb(48 44 43 / 90%); border-color: #766382; outline: none; }
-.installed-card__thumbnail { position: relative; display: grid; width: calc(100% + 28px); aspect-ratio: 1 / 1; margin: 0 -14px; place-items: center; overflow: hidden; background: #211f1e; }
-.installed-card__thumbnail > img { display: block; width: 100%; height: 100%; object-fit: cover; }
-.installed-card__thumbnail .firmware-thumbnail { width: 100%; height: 100%; flex-basis: auto; border: 0; }
-.installed-card__name { margin: 13px 0 4px; color: #e8e1d7; font-size: 21px; font-weight: 600; }
-.installed-card__description { display: -webkit-box; min-height: 3.9em; margin: 0; overflow: hidden; color: #b9b0a7; font: 12px/1.5 'Share Tech Mono', monospace; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
-.installed-card__versions { margin-top: 13px; padding-top: 10px; border-top: 1px solid #514754; }
-.installed-card__versions > strong { display: block; margin-bottom: 7px; color: #aa97c2; font-size: 10px; letter-spacing: .13em; }
-.installed-card__versions > div { display: flex; flex-wrap: wrap; gap: 5px; }
-.installed-version { padding: 3px 6px; color: #77dfc0; background: #1f3531; border: 1px solid #3c766a; font: 11px 'Share Tech Mono', monospace; }
-.installed-card__buttons { display: grid; grid-template-columns: 34px minmax(0, 1fr) minmax(0, 1fr); gap: 7px; margin-top: auto; padding-top: 15px; }
-.installed-card__buttons .outline-button { min-width: 0; padding-inline: 5px; font-size: 10px; }
-.favorite-button { display: grid; min-width: 0; place-items: center; padding: 0; color: #a99d9c; background: #302d2c; border: 1px solid #514b4a; font-size: 20px; line-height: 1; cursor: pointer; }
-.favorite-button:hover, .favorite-button.is-favorite { color: #ff807f; border-color: #9a5559; }
-.favorite-button.is-favorite { background: #3d282a; text-shadow: 0 0 8px rgb(255 105 115 / 35%); }
-.installed-card__buttons .outline-button:disabled { opacity: .45; cursor: not-allowed; }
-@media (max-width: 600px) { .downloaded-heading-actions { width: 100%; }.installed-grid { grid-template-columns: 1fr; } }
+.downloaded-heading-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.folder-error,
+.action-message {
+  margin: -12px 0 14px;
+  color: #ed9a7b;
+  font: 12px 'Share Tech Mono', monospace;
+}
+
+.library-state {
+  min-height: 42vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 25px;
+  text-align: center;
+  background: rgb(40 37 36 / 70%);
+  border: 1px solid #48413f;
+}
+
+.library-state h2 {
+  margin: 0 0 5px;
+  color: #e3dcd2;
+  font-size: 21px;
+  font-weight: 600;
+}
+
+.library-state p {
+  margin: 0;
+  color: #a49b97;
+  font: 13px 'Share Tech Mono', monospace;
+}
+
+.installed-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.installed-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  padding: 0 14px 14px;
+  background: rgb(40 37 36 / 78%);
+  border: 1px solid #48413f;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+
+.installed-card:hover,
+.installed-card:focus-visible {
+  background: rgb(48 44 43 / 90%);
+  border-color: #766382;
+  outline: none;
+}
+
+.installed-card__thumbnail {
+  position: relative;
+  display: grid;
+  width: calc(100% + 28px);
+  aspect-ratio: 1 / 1;
+  margin: 0 -14px;
+  place-items: center;
+  overflow: hidden;
+  background: #211f1e;
+}
+
+.installed-card__thumbnail>img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.installed-card__thumbnail .firmware-thumbnail {
+  width: 100%;
+  height: 100%;
+  flex-basis: auto;
+  border: 0;
+}
+
+.installed-card__name {
+  margin: 13px 0 4px;
+  color: #e8e1d7;
+  font-size: 21px;
+  font-weight: 600;
+}
+
+.installed-card__description {
+  display: -webkit-box;
+  min-height: 3.9em;
+  margin: 0;
+  overflow: hidden;
+  color: #b9b0a7;
+  font: 12px/1.5 'Share Tech Mono', monospace;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.installed-card__versions {
+  margin-top: 13px;
+  padding-top: 10px;
+  border-top: 1px solid #514754;
+}
+
+.installed-card__versions>strong {
+  display: block;
+  margin-bottom: 7px;
+  color: #aa97c2;
+  font-size: 10px;
+  letter-spacing: .13em;
+}
+
+.installed-card__versions>div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.installed-version {
+  padding: 3px 6px;
+  color: #77dfc0;
+  background: #1f3531;
+  border: 1px solid #3c766a;
+  font: 11px 'Share Tech Mono', monospace;
+}
+
+.installed-card__buttons {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) minmax(0, 1fr);
+  gap: 7px;
+  margin-top: auto;
+  padding-top: 15px;
+}
+
+.installed-card__buttons .outline-button {
+  min-width: 0;
+  padding-inline: 5px;
+  font-size: 10px;
+}
+
+.favorite-button {
+  display: grid;
+  min-width: 0;
+  place-items: center;
+  padding: 0;
+  color: #a99d9c;
+  background: #302d2c;
+  border: 1px solid #514b4a;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.favorite-button:hover,
+.favorite-button.is-favorite {
+  color: #ff807f;
+  border-color: #9a5559;
+}
+
+.favorite-button.is-favorite {
+  background: #3d282a;
+  text-shadow: 0 0 8px rgb(255 105 115 / 35%);
+}
+
+.installed-card__buttons .outline-button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+@media (max-width: 600px) {
+  .downloaded-heading-actions {
+    width: 100%;
+  }
+
+  .installed-grid {
+    grid-template-columns: 1fr;
+  }
+}
 </style>

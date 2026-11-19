@@ -31,8 +31,6 @@ Visit the [releases page](../../releases) to download the latest stable version.
 - **Intuitive UI**: Beautiful, modern interface designed for ease of use
 - **Cross-Platform**: Available for Windows and macOS
 
-## Getting Started
-
 ### Build Prerequisites
 
 - Node.js 20+ and npm
