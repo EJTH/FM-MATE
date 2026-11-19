@@ -10,6 +10,7 @@ import {
 import { clearFirmwareCatalogCache } from "../services/firmwareCatalog";
 import ToolDownloadsSection from "../components/ToolDownloadsSection.vue";
 import AppUpdateSection from "../components/AppUpdateSection.vue";
+import Toast from "../components/Toast.vue";
 import type { MFlasherRequestPayload } from "../types/flasher";
 
 const emit = defineEmits<{ openFlasher: [request: MFlasherRequestPayload] }>();
@@ -20,16 +21,13 @@ const preferences = reactive({
 });
 const repositoryUrlDraft = ref("");
 const settingsLoaded = ref(false);
-const settingsMessage = ref("");
-const settingsError = ref(false);
 const preferencesStore = new LazyStore("settings.json", { autoSave: true });
 const firmwareFolderDraft = ref("");
-const firmwareFolderMessage = ref("");
-const firmwareFolderError = ref(false);
 const mFlasherInstalled = ref<boolean | null | undefined>(undefined);
 const clearingCache = ref(false);
-const cacheMessage = ref("");
-const cacheError = ref(false);
+const toast = ref<{ message: string; variant: "success" | "error" } | null>(
+  null,
+);
 
 onMounted(async () => {
   try {
@@ -52,19 +50,23 @@ onMounted(async () => {
           "get_firmware_folder_path",
         );
       } catch {
-        firmwareFolderError.value = true;
-        firmwareFolderMessage.value =
-          "Could not load the firmware folder or tool status.";
+        toast.value = {
+          message: "Could not load the firmware folder or tool status.",
+          variant: "error",
+        };
       }
     }
   } catch {
-    settingsError.value = true;
-    settingsMessage.value = "Could not load saved settings.";
+    toast.value = {
+      message: "Could not load saved settings.",
+      variant: "error",
+    };
   }
 });
 
 async function savePreferences() {
   if (!settingsLoaded.value) return;
+  toast.value = null;
   try {
     if (isTauri()) {
       await preferencesStore.set("preferences", { ...preferences });
@@ -72,31 +74,32 @@ async function savePreferences() {
     } else {
       localStorage.setItem("fm-mate.preferences", JSON.stringify(preferences));
     }
-    settingsError.value = false;
-    settingsMessage.value = "Settings saved.";
+    toast.value = { message: "Settings saved.", variant: "success" };
   } catch {
-    settingsError.value = true;
-    settingsMessage.value = "Could not save settings.";
+    toast.value = { message: "Could not save settings.", variant: "error" };
   }
 }
 
 async function saveFirmwareFolderPath(path = firmwareFolderDraft.value) {
   if (!settingsLoaded.value || !isTauri()) return;
-  firmwareFolderError.value = false;
-  firmwareFolderMessage.value = "";
+  toast.value = null;
   try {
     firmwareFolderDraft.value = await invoke<string>(
       "set_firmware_folder_path",
       { path },
     );
-    firmwareFolderMessage.value =
-      "Firmware folder saved. Existing files are not moved.";
+    toast.value = {
+      message: "Firmware folder saved. Existing files are not moved.",
+      variant: "success",
+    };
   } catch (error) {
-    firmwareFolderError.value = true;
-    firmwareFolderMessage.value =
-      error instanceof Error
-        ? error.message
-        : "Could not save firmware folder.";
+    toast.value = {
+      message:
+        error instanceof Error
+          ? error.message
+          : "Could not save firmware folder.",
+      variant: "error",
+    };
   }
 }
 
@@ -112,8 +115,10 @@ function repositoryUrlIsValid(value: string) {
 
 async function saveRepositoryUrl() {
   if (!repositoryUrlIsValid(repositoryUrlDraft.value)) {
-    settingsError.value = true;
-    settingsMessage.value = "Enter a valid HTTP or HTTPS repository URL.";
+    toast.value = {
+      message: "Enter a valid HTTP or HTTPS repository URL.",
+      variant: "error",
+    };
     return;
   }
   preferences.firmwareRepositoryUrl = repositoryUrlDraft.value.trim();
@@ -122,9 +127,8 @@ async function saveRepositoryUrl() {
 
 async function clearCache() {
   if (clearingCache.value) return;
+  toast.value = null;
   clearingCache.value = true;
-  cacheMessage.value = "";
-  cacheError.value = false;
   try {
     await Promise.all([
       clearFirmwareCatalogCache(),
@@ -135,15 +139,17 @@ async function clearCache() {
           : Promise.resolve(),
     ]);
     window.dispatchEvent(new Event(THUMBNAIL_CACHE_CLEARED_EVENT));
-    cacheMessage.value = "Cache cleared.";
+    toast.value = { message: "Cache cleared.", variant: "success" };
   } catch (error) {
-    cacheError.value = true;
-    cacheMessage.value =
-      error instanceof Error
-        ? error.message
-        : typeof error === "string"
-          ? error
-          : "Could not clear the cache.";
+    toast.value = {
+      message:
+        error instanceof Error
+          ? error.message
+          : typeof error === "string"
+            ? error
+            : "Could not clear the cache.",
+      variant: "error",
+    };
   } finally {
     clearingCache.value = false;
   }
@@ -207,16 +213,10 @@ async function clearCache() {
             USE DEFAULT
           </button>
         </div>
-        <p
-          class="settings-feedback"
-          :class="{ 'is-error': firmwareFolderError }"
-          aria-live="polite"
-        >
-          {{ firmwareFolderMessage }}
-        </p>
       </form>
       <form
         class="settings-group repository-form"
+        novalidate
         @submit.prevent="saveRepositoryUrl"
       >
         <h2>FIRMWARE REPOSITORY</h2>
@@ -237,20 +237,11 @@ async function clearCache() {
           /><button
             class="outline-button"
             type="submit"
-            :disabled="
-              !settingsLoaded || !repositoryUrlIsValid(repositoryUrlDraft)
-            "
+            :disabled="!settingsLoaded"
           >
             SAVE URL
           </button>
         </div>
-        <p
-          class="settings-feedback"
-          :class="{ 'is-error': settingsError }"
-          aria-live="polite"
-        >
-          {{ settingsMessage }}
-        </p>
       </form>
       <AppUpdateSection />
       <section class="settings-group">
@@ -296,15 +287,14 @@ async function clearCache() {
         >
           {{ clearingCache ? "CLEARING…" : "CLEAR CACHE" }}
         </button>
-        <p
-          v-if="cacheMessage"
-          class="settings-feedback"
-          :class="{ 'is-error': cacheError }"
-          role="status"
-        >
-          {{ cacheMessage }}
-        </p>
       </section>
     </div>
+    <Toast
+      v-if="toast"
+      :message="toast.message"
+      :reset-key="toast"
+      :variant="toast.variant"
+      @dismiss="toast = null"
+    />
   </section>
 </template>

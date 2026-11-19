@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onActivated, ref } from "vue";
+import { computed, onActivated, ref, watch } from "vue";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { LazyStore } from "@tauri-apps/plugin-store";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -8,28 +8,31 @@ import NewVersionBanner from "../components/NewVersionBanner.vue";
 import FirmwareDetails from "../components/FirmwareDetails.vue";
 import InstallDropdown from "../components/InstallDropdown.vue";
 import ConfirmationDialog from "../components/ConfirmationDialog.vue";
+import Toast from "../components/Toast.vue";
 import type { InstalledFirmware, InstalledVersion } from "../types/firmware";
 import {
   firmwareThumbnailUrls,
   getRepositoryUrl,
   loadFirmwareCatalog,
-  isNewerFirmwareVersion,
+  findFirmwareUpdate,
   getFavoriteFirmwareIds,
   getInstalledFirmwares,
-  ScannedFirmware,
-
 } from "../services/firmwareCatalog";
-import type { FirmwareRecord } from "../services/firmwareCatalog";
+import type { FirmwareRecord, ScannedFirmware } from "../services/firmwareCatalog";
 import type { MFlasherRequestPayload } from "../types/flasher";
 import { finishEmulatorSession } from "../services/emulatorSession";
 import type { EmulatorSavePrompt } from "../services/emulatorSession";
 import FavoriteButton from "../components/FavoriteButton.vue";
 
-const props = defineProps<{ openFirmwareId?: string | null }>();
+const props = defineProps<{
+  openFirmwareId?: string | null;
+  showUpdatesRequest?: number | null;
+}>();
 const emit = defineEmits<{
   openSaves: [filter: { firmwareId: string; version: string }];
   openFlasher: [request: MFlasherRequestPayload];
   detailsOpened: [firmwareId: string];
+  updatesFilterApplied: [requestId: number];
 }>();
 
 
@@ -39,19 +42,34 @@ const favoriteIds = ref<string[]>([]);
 const catalogFirmwares = ref<FirmwareRecord[]>([]);
 const catalogRepositoryUrl = ref("");
 const catalogNotice = ref("");
+const catalogLoading = ref(true);
+const catalogFailed = ref(false);
 const updateDownloadingId = ref("");
-const updateMessage = ref("");
 const emulating = ref(false);
 const loading = ref(true);
 const loadError = ref(false);
-const folderError = ref("");
 const openingFolder = ref(false);
 const selectedFirmware = ref<InstalledFirmware | null>(null);
-const actionMessage = ref("");
+const updatesOnly = ref(false);
+const toast = ref<{
+  message: string;
+  variant: "success" | "error" | "info";
+} | null>(null);
 const pendingVersionDelete = ref<{
   firmware: InstalledFirmware;
   version: InstalledVersion;
 } | null>(null);
+watch(
+  () => props.showUpdatesRequest,
+  (requestId) => {
+    if (requestId == null) return;
+    updatesOnly.value = true;
+    selectedFirmware.value = null;
+    pendingVersionDelete.value = null;
+    emit("updatesFilterApplied", requestId);
+  },
+  { immediate: true },
+);
 
 const firmwares = computed<InstalledFirmware[]>(() => {
   const grouped = new Map<string, InstalledFirmware>();
@@ -105,38 +123,52 @@ const sortedFirmwares = computed(() =>
     return favoriteOrder || a.name.localeCompare(b.name);
   }),
 );
+const visibleFirmwares = computed(() =>
+  updatesOnly.value
+    ? sortedFirmwares.value.filter((firmware) => availableUpdate(firmware))
+    : sortedFirmwares.value,
+);
 
 async function loadDownloads() {
   loading.value = true;
   loadError.value = false;
-  actionMessage.value = "";
   try {
-    getInstalledFirmwares().then((firmwares: ScannedFirmware[]) => {
-      scannedFirmwares.value = firmwares;
-    });
-    getFavoriteFirmwareIds().then((ids) => {
-      favoriteIds.value = ids;
-    });
+    const [firmwares, ids] = await Promise.all([
+      getInstalledFirmwares(),
+      getFavoriteFirmwareIds(),
+    ]);
+    scannedFirmwares.value = firmwares;
+    favoriteIds.value = ids;
+    return true;
   } catch {
     loadError.value = true;
+    return false;
   } finally {
     loading.value = false;
   }
 }
 
 async function activateDownloads() {
-  await loadDownloads();
+  const loaded = await loadDownloads();
   const requestedId = props.openFirmwareId;
   if (!requestedId) return;
-  const match = firmwares.value.find((firmware) => firmware.id === requestedId);
-  if (match) selectedFirmware.value = match;
-  else actionMessage.value = "That firmware is no longer installed.";
+  if (loaded) {
+    const match = firmwares.value.find((firmware) => firmware.id === requestedId);
+    if (match) selectedFirmware.value = match;
+    else
+      toast.value = {
+        message: "That firmware is no longer installed.",
+        variant: "info",
+      };
+  }
   emit("detailsOpened", requestedId);
 }
 
 onActivated(activateDownloads);
 
 async function loadCatalog() {
+  catalogLoading.value = true;
+  catalogFailed.value = false;
   catalogRepositoryUrl.value = "";
   try {
     catalogRepositoryUrl.value = await getRepositoryUrl();
@@ -148,38 +180,21 @@ async function loadCatalog() {
       : "";
   } catch {
     catalogFirmwares.value = [];
+    catalogFailed.value = true;
     catalogNotice.value = "Could not check for firmware updates.";
+  } finally {
+    catalogLoading.value = false;
   }
 }
 
 onActivated(loadCatalog);
 
 function availableUpdate(firmware: InstalledFirmware) {
-  const latest = catalogFirmwares.value
-    .filter(
-      (item) =>
-        item.id === firmware.id &&
-        typeof item.version === "string" &&
-        item.version.trim(),
-    )
-    .sort((a, b) =>
-      (b.version ?? "").localeCompare(a.version ?? "", undefined, {
-        numeric: true,
-        sensitivity: "base",
-      }),
-    )[0];
-  if (!latest?.version) return null;
-  const newestInstalled = firmware.installedVersions
-    .map((item) => item.version)
-    .sort((a, b) =>
-      b.localeCompare(a, undefined, { numeric: true, sensitivity: "base" }),
-    )[0];
-  if (
-    !newestInstalled ||
-    !isNewerFirmwareVersion(latest, scannedFirmwares.value)
-  )
-    return null;
-  return latest;
+  return findFirmwareUpdate(
+    firmware.id,
+    catalogFirmwares.value,
+    scannedFirmwares.value,
+  );
 }
 
 async function toggleFavorite(id: string) {
@@ -197,7 +212,7 @@ async function toggleFavorite(id: string) {
     }
   } catch {
     favoriteIds.value = previous;
-    actionMessage.value = "Could not save this favorite.";
+    toast.value = { message: "Could not save this favorite.", variant: "error" };
   }
 }
 
@@ -217,20 +232,25 @@ function hasEditor(firmware: InstalledFirmware) {
 }
 
 async function openFirmwareFolder() {
-  folderError.value = "";
+  toast.value = null;
   if (!isTauri()) {
-    folderError.value =
-      "Opening the firmware folder is available in the desktop app.";
+    toast.value = {
+      message: "Opening the firmware folder is available in the desktop app.",
+      variant: "info",
+    };
     return;
   }
   openingFolder.value = true;
   try {
     await invoke("open_firmware_folder");
   } catch (error) {
-    folderError.value =
-      error instanceof Error
-        ? `Could not open the firmware folder: ${error.message}`
-        : "Could not open the firmware folder.";
+    toast.value = {
+      message:
+        error instanceof Error
+          ? `Could not open the firmware folder: ${error.message}`
+          : "Could not open the firmware folder.",
+      variant: "error",
+    };
   } finally {
     openingFolder.value = false;
   }
@@ -263,8 +283,11 @@ async function openEditor(
     if (isTauri()) await openUrl(url);
     else window.open(url, "_blank", "noopener,noreferrer");
   } catch (error) {
-    actionMessage.value =
-      error instanceof Error ? error.message : "Could not open the editor.";
+    toast.value = {
+      message:
+        error instanceof Error ? error.message : "Could not open the editor.",
+      variant: "error",
+    };
   }
 }
 
@@ -273,17 +296,16 @@ async function openInEmulator(
   version: InstalledVersion,
 ) {
   if (emulating.value) return;
-  updateMessage.value = "";
+  toast.value = null;
   if (!isTauri()) {
-    updateMessage.value = "Open in emulator is available in the desktop app.";
+    toast.value = {
+      message: "Open in emulator is available in the desktop app.",
+      variant: "info",
+    };
     return;
   }
   emulating.value = true;
-  function report(message: string) {
-    if (selectedFirmware.value?.id === firmware.id)
-      updateMessage.value = message;
-    else actionMessage.value = message;
-  }
+  toast.value = { message: "Starting emulator...", variant: "info" };
   try {
     const savePrompt = await invoke<EmulatorSavePrompt>(
       "open_firmware_in_emulator",
@@ -291,19 +313,27 @@ async function openInEmulator(
     );
     const saved = await finishEmulatorSession(savePrompt);
     if (saved) {
-      await loadDownloads();
+      if (!(await loadDownloads())) {
+        throw new Error(
+          `Emulator session saved as ${saved.fileName}, but the library could not be refreshed.${saved.warning ? ` ${saved.warning}` : ""}`,
+        );
+      }
       if (selectedFirmware.value?.id === firmware.id) {
         selectedFirmware.value =
           firmwares.value.find((item) => item.id === firmware.id) ?? null;
       }
-      report(
-        `Emulator session saved as ${saved.fileName}.${saved.warning ? ` ${saved.warning}` : ""}`,
-      );
+      toast.value = {
+        message: `Emulator session saved as ${saved.fileName}.${saved.warning ? ` ${saved.warning}` : ""}`,
+        variant: "success",
+      };
     } else {
-      report("Emulator session not saved.");
+      toast.value = { message: "Emulator session not saved.", variant: "info" };
     }
   } catch (error) {
-    report(error instanceof Error ? error.message : String(error));
+    toast.value = {
+      message: error instanceof Error ? error.message : String(error),
+      variant: "error",
+    };
   } finally {
     emulating.value = false;
   }
@@ -317,7 +347,7 @@ async function downloadUpdate(firmware: InstalledFirmware) {
   const update = availableUpdate(firmware);
   if (!update?.pkg || updateDownloadingId.value) return;
   updateDownloadingId.value = firmware.id;
-  updateMessage.value = "";
+  toast.value = null;
   try {
     const packageUrl = new URL(update.pkg, catalogRepositoryUrl.value);
     if (!["https:", "http:"].includes(packageUrl.protocol))
@@ -354,13 +384,23 @@ async function downloadUpdate(firmware: InstalledFirmware) {
       anchor.click();
       URL.revokeObjectURL(objectUrl);
     }
-    await loadDownloads();
+    if (!(await loadDownloads())) {
+      throw new Error(
+        "Firmware downloaded, but the library could not be refreshed.",
+      );
+    }
     selectedFirmware.value =
       firmwares.value.find((item) => item.id === firmware.id) ?? null;
-    updateMessage.value = `${firmware.name} ${update.version} downloaded.`;
+    toast.value = {
+      message: `${firmware.name} ${update.version} downloaded.`,
+      variant: "success",
+    };
   } catch (error) {
-    updateMessage.value =
-      error instanceof Error ? error.message : "Firmware download failed.";
+    toast.value = {
+      message:
+        error instanceof Error ? error.message : "Firmware download failed.",
+      variant: "error",
+    };
   } finally {
     updateDownloadingId.value = "";
   }
@@ -375,7 +415,10 @@ async function openReleaseNotes(firmware: InstalledFirmware) {
     if (isTauri()) await openUrl(releaseUrl.toString());
     else window.open(releaseUrl.toString(), "_blank", "noopener,noreferrer");
   } catch {
-    updateMessage.value = "Could not open the release notes.";
+    toast.value = {
+      message: "Could not open the release notes.",
+      variant: "error",
+    };
   }
 }
 
@@ -392,15 +435,25 @@ async function confirmDeleteVersion() {
       id: pending.firmware.id,
       version: pending.version.version,
     });
-    await loadDownloads();
+    if (!(await loadDownloads())) {
+      throw new Error(
+        "Firmware deleted, but the library could not be refreshed.",
+      );
+    }
     selectedFirmware.value =
       firmwares.value.find((item) => item.id === pending.firmware.id) ?? null;
-    actionMessage.value = `Deleted ${pending.firmware.name} ${pending.version.version}.`;
+    toast.value = {
+      message: `Deleted ${pending.firmware.name} ${pending.version.version}.`,
+      variant: "success",
+    };
   } catch (error) {
-    actionMessage.value =
-      error instanceof Error
-        ? error.message
-        : "Could not delete this firmware version.";
+    toast.value = {
+      message:
+        error instanceof Error
+          ? error.message
+          : "Could not delete this firmware version.",
+      variant: "error",
+    };
   }
 }
 
@@ -430,7 +483,7 @@ async function installFirmware(firmware: InstalledFirmware, version: string) {
 </script>
 
 <template>
-  <section class="view-panel">
+  <section id="library" class="view-panel">
     <div class="view-heading">
       <div>
         <p class="eyebrow">LOCAL LIBRARY</p>
@@ -455,13 +508,19 @@ async function installFirmware(firmware: InstalledFirmware, version: string) {
         </button>
       </div>
     </div>
-    <p v-if="folderError" class="folder-error" role="status">
-      {{ folderError }}
+    <div class="library-filters">
+      <label class="library-updates-only">
+        <input v-model="updatesOnly" type="checkbox" />
+        Only show pending updates
+      </label>
+    </div>
+    <p
+      v-if="updatesOnly && catalogNotice && !catalogFailed"
+      class="library-notice"
+      role="status"
+    >
+      {{ catalogNotice }}
     </p>
-    <p v-if="actionMessage" class="action-message" role="status">
-      {{ actionMessage }}
-    </p>
-
     <div v-if="loading" class="library-state">
       <h2>Scanning firmware folder…</h2>
     </div>
@@ -474,9 +533,23 @@ async function installFirmware(firmware: InstalledFirmware, version: string) {
       <h2>No firmware installed</h2>
       <p>Downloaded firmware packages will appear here.</p>
     </div>
+    <div v-else-if="updatesOnly && catalogLoading" class="library-state">
+      <h2>Checking for firmware updates…</h2>
+    </div>
+    <div v-else-if="updatesOnly && catalogFailed" class="library-state">
+      <h2>Could not check for firmware updates</h2>
+      <p>Return to this tab to retry.</p>
+    </div>
+    <div
+      v-else-if="updatesOnly && !visibleFirmwares.length"
+      class="library-state"
+    >
+      <h2>No firmware updates available</h2>
+      <p>Downloaded firmware with updates will appear here.</p>
+    </div>
     <div v-else class="installed-grid">
       <article
-        v-for="firmware in sortedFirmwares"
+        v-for="firmware in visibleFirmwares"
         :key="firmware.id"
         class="installed-card"
         tabindex="0"
@@ -551,7 +624,6 @@ async function installFirmware(firmware: InstalledFirmware, version: string) {
       :repository-url="catalogRepositoryUrl"
       :update="availableUpdate(selectedFirmware)"
       :update-downloading="updateDownloadingId === selectedFirmware.id"
-      :update-message="updateMessage"
       :emulating="emulating"
       :catalog-notice="catalogNotice"
       @close="selectedFirmware = null"
@@ -573,6 +645,13 @@ async function installFirmware(firmware: InstalledFirmware, version: string) {
       @secondary="pendingVersionDelete = null"
       @cancel="pendingVersionDelete = null"
     />
+    <Toast
+      v-if="toast"
+      :message="toast.message"
+      :variant="toast.variant"
+      :reset-key="toast"
+      @dismiss="toast = null"
+    />
   </section>
 </template>
 
@@ -582,13 +661,27 @@ async function installFirmware(firmware: InstalledFirmware, version: string) {
   flex-wrap: wrap;
   gap: 8px;
 }
-
-.folder-error,
-.action-message {
-  margin: -12px 0 14px;
-  color: #ed9a7b;
+.library-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.library-filters .library-updates-only {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #b49bdc;
+  font-size: 13px;
+}
+.library-updates-only input {
+  accent-color: #65e1c1;
+}
+.library-notice {
+  color: #b9b0a7;
   font:
-    12px "Share Tech Mono",
+    12px/1.5 "Share Tech Mono",
     monospace;
 }
 

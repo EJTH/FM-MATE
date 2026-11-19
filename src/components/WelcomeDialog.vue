@@ -14,16 +14,18 @@ onMounted(async () => {
   loadingChangelog.value = true;
   try {
     const response = await fetch(
-      `https://api.github.com/repos/EJTH/FM-MATE/releases/tags/${encodeURIComponent(`v${props.version}`)}`,
+      `https://api.github.com/repos/EJTH/FM-MATE/releases`,
       {
         headers: { Accept: "application/vnd.github+json" },
         signal: releaseController.signal,
       },
     );
+    console.log(response);
     if (!response.ok)
       throw new Error(`GitHub returned HTTP ${response.status}.`);
-    const release: { body?: unknown } = await response.json();
-    if (typeof release.body !== "string" || !release.body.trim())
+    const releases: Array<{ body?: unknown }> = await response.json();
+    const release = releases.find((item) => item.body);
+    if (typeof release?.body !== "string" || !release?.body.trim())
       throw new Error("This release has no notes.");
     changelog.value = release.body
       .trim()

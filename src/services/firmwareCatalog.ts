@@ -1,6 +1,9 @@
 import { LazyStore } from "@tauri-apps/plugin-store";
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { DEFAULT_FIRMWARE_REPOSITORY_URL } from "../config";
+import {
+  DEFAULT_FIRMWARE_REPOSITORY_URL,
+  FIRMWARE_CATALOG_REFRESHED_EVENT,
+} from "../config";
 
 
 export interface FirmwareRecord {
@@ -12,12 +15,12 @@ export interface FirmwareRecord {
   ident?: string;
   what?: string;
   product?: string;
-  version?: string;
+  version: string;
   date?: string;
   added?: string;
   size?: number;
-  pkg?: string;
-  sha256?: string;
+  pkg: string;
+  sha256: string;
   card?: string | null;
   stars?: number;
   installs?: number;
@@ -26,7 +29,7 @@ export interface FirmwareRecord {
   site?: string;
   play?: string;
   beta?: boolean;
-  [key: string]: unknown;
+  editor?: string;
 }
 
 export interface ScannedFirmware {
@@ -47,6 +50,7 @@ export interface ScannedFirmware {
   info: Record<string, unknown>;
   editorPath?: string | null;
   sha256?: string | null;
+  pkg: string;
 }
 
 
@@ -102,13 +106,31 @@ export function isNewerFirmwareVersion(
   firmware: FirmwareRecord,
   downloaded: DownloadedFirmware[],
 ): boolean {
-  
-  return downloaded.some(
-    (download: DownloadedFirmware) =>
-      firmware.id == download.id &&
-      download.sha256 !== (firmware.sha256 ?? ""),
+  const installed = downloaded.filter((download) => download.id === firmware.id);
+  return (
+    installed.length > 0 &&
+    !installed.some((download) =>
+      firmware.sha256 && download.sha256
+        ? firmware.sha256.toLowerCase() === download.sha256.toLowerCase()
+        : Boolean(firmware.version && firmware.version === download.version),
+    )
   );
+}
 
+export function findFirmwareUpdate(
+  firmwareId: string,
+  catalog: FirmwareRecord[],
+  downloaded: DownloadedFirmware[],
+): FirmwareRecord | null {
+  const latest = catalog
+    .filter((item) => item.id === firmwareId && item.version?.trim())
+    .sort((a, b) =>
+      b.version.localeCompare(a.version, undefined, {
+        numeric: true,
+        sensitivity: "base",
+      }),
+    )[0];
+  return latest && isNewerFirmwareVersion(latest, downloaded) ? latest : null;
 }
 
 export async function getInstalledFirmwares() {
@@ -257,7 +279,13 @@ export async function loadFirmwareCatalog(
       fetchedAt: Date.now(),
     };
     await setCache(fresh);
-    return toCatalog(fresh, repositoryUrl, false);
+    const catalog = toCatalog(fresh, repositoryUrl, false);
+    window.dispatchEvent(
+      new CustomEvent<FirmwareCatalog>(FIRMWARE_CATALOG_REFRESHED_EVENT, {
+        detail: catalog,
+      }),
+    );
+    return catalog;
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") throw error;
     if (matchingCache) return toCatalog(matchingCache, repositoryUrl, true);

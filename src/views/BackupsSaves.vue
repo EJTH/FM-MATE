@@ -3,6 +3,7 @@ import { computed, onActivated, ref, watch } from "vue";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { InstalledSave } from "../types/saves";
 import SavesTable from "../components/SavesTable.vue";
+import Toast from "../components/Toast.vue";
 import type { MFlasherRequestPayload } from "../types/flasher";
 import { finishEmulatorSession } from "../services/emulatorSession";
 import type { EmulatorSavePrompt } from "../services/emulatorSession";
@@ -19,7 +20,10 @@ const saves = ref<InstalledSave[]>([]);
 const loading = ref(true);
 const loadError = ref(false);
 const loadErrorMessage = ref("");
-const actionMessage = ref("");
+const toast = ref<{
+  message: string;
+  variant: "success" | "error" | "info";
+} | null>(null);
 const emulating = ref(false);
 const selectedFirmwareId = ref("");
 const selectedVersion = ref("");
@@ -89,7 +93,7 @@ async function loadSaves() {
 onActivated(loadSaves);
 
 async function deleteSave(save: InstalledSave) {
-  actionMessage.value = "";
+  toast.value = null;
   try {
     await invoke("delete_installed_save", {
       firmwareId: save.firmwareId,
@@ -97,16 +101,19 @@ async function deleteSave(save: InstalledSave) {
       relativePath: save.relativePath,
     });
     await loadSaves();
-    actionMessage.value = `Deleted ${save.fileName}.`;
+    toast.value = { message: `Deleted ${save.fileName}.`, variant: "success" };
   } catch (error) {
-    actionMessage.value =
-      error instanceof Error ? error.message : "Could not delete the save.";
+    toast.value = {
+      message:
+        error instanceof Error ? error.message : "Could not delete the save.",
+      variant: "error",
+    };
   }
 }
 
 async function emulateSave(save: InstalledSave) {
   if (emulating.value) return;
-  actionMessage.value = "";
+  toast.value = null;
   emulating.value = true;
   try {
     const savePrompt = await invoke<EmulatorSavePrompt>(
@@ -121,20 +128,25 @@ async function emulateSave(save: InstalledSave) {
     const saved = await finishEmulatorSession(savePrompt);
     if (saved) {
       await loadSaves();
-      actionMessage.value = `Emulator session saved as ${saved.fileName}.${saved.warning ? ` ${saved.warning}` : ""}`;
+      toast.value = {
+        message: `Emulator session saved as ${saved.fileName}.${saved.warning ? ` ${saved.warning}` : ""}`,
+        variant: "success",
+      };
     } else {
-      actionMessage.value = "Emulator session not saved.";
+      toast.value = { message: "Emulator session not saved.", variant: "info" };
     }
   } catch (error) {
-    actionMessage.value =
-      error instanceof Error ? error.message : String(error);
+    toast.value = {
+      message: error instanceof Error ? error.message : String(error),
+      variant: "error",
+    };
   } finally {
     emulating.value = false;
   }
 }
 
 async function openSaveFolder(save: InstalledSave) {
-  actionMessage.value = "";
+  toast.value = null;
   try {
     await invoke("open_installed_save_folder", {
       firmwareId: save.firmwareId,
@@ -142,33 +154,41 @@ async function openSaveFolder(save: InstalledSave) {
       relativePath: save.relativePath,
     });
   } catch (error) {
-    actionMessage.value =
-      error instanceof Error
-        ? error.message
-        : "Could not open the save folder.";
+    toast.value = {
+      message:
+        error instanceof Error
+          ? error.message
+          : "Could not open the save folder.",
+      variant: "error",
+    };
   }
 }
 
 function flashSave(save: InstalledSave) {
-  actionMessage.value = "";
+  toast.value = null;
   emit("openFlasher", { type: "flash-save", save });
 }
 
 async function openFirmwareFolder() {
   if (!isTauri()) {
-    actionMessage.value =
-      "Opening the firmware folder is available in the desktop app.";
+    toast.value = {
+      message: "Opening the firmware folder is available in the desktop app.",
+      variant: "info",
+    };
     return;
   }
   try {
     await invoke("open_firmware_folder");
   } catch {
-    actionMessage.value = "Could not open the firmware folder.";
+    toast.value = {
+      message: "Could not open the firmware folder.",
+      variant: "error",
+    };
   }
 }
 
 function saveDeviceBackup() {
-  actionMessage.value = "";
+  toast.value = null;
   emit("openFlasher", { type: "backup" });
 }
 </script>
@@ -227,9 +247,6 @@ function saveDeviceBackup() {
         </select>
       </label>
     </div>
-    <p v-if="actionMessage" class="saves-message" role="status">
-      {{ actionMessage }}
-    </p>
     <SavesTable
       :saves="filteredSaves"
       :loading="loading"
@@ -245,6 +262,13 @@ function saveDeviceBackup() {
       @emulate="emulateSave"
       @open-folder="openSaveFolder"
       @flash="flashSave"
+    />
+    <Toast
+      v-if="toast"
+      :message="toast.message"
+      :variant="toast.variant"
+      :reset-key="toast"
+      @dismiss="toast = null"
     />
   </section>
 </template>
@@ -278,13 +302,6 @@ function saveDeviceBackup() {
 }
 .saves-filters select:disabled {
   opacity: 0.5;
-}
-.saves-message {
-  margin: -12px 0 14px;
-  color: #edb58d;
-  font:
-    12px "Share Tech Mono",
-    monospace;
 }
 .device-backup-panel {
   margin: 0 0 18px;

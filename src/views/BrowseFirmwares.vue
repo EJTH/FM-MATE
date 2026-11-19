@@ -5,6 +5,7 @@ import { LazyStore } from "@tauri-apps/plugin-store";
 import DetailedResultCard from "../components/DetailedResultCard.vue";
 import FirmwareResultCard from "../components/FirmwareResultCard.vue";
 import ConfirmationDialog from "../components/ConfirmationDialog.vue";
+import Toast from "../components/Toast.vue";
 import {
   firmwareThumbnailUrls,
   isNewerFirmwareVersion,
@@ -47,8 +48,10 @@ const emit = defineEmits<{
 }>();
 const downloadedFirmwares = ref<DownloadedFirmware[]>([]);
 const downloadingId = ref("");
-const downloadMessage = ref("");
-const downloadIsError = ref(false);
+const toast = ref<{
+  message: string;
+  variant: "success" | "error" | "info";
+} | null>(null);
 const catalogSource = computed(() => {
   try {
     const url = new URL(repositoryUrl.value);
@@ -211,8 +214,7 @@ async function downloadFirmware(
 ): Promise<boolean> {
   if (!firmware.pkg || downloadingId.value) return false;
   downloadingId.value = firmware.id;
-  downloadMessage.value = "";
-  downloadIsError.value = false;
+  toast.value = null;
   try {
     const packageUrl = new URL(firmware.pkg, repositoryUrl.value);
     if (!["https:", "http:"].includes(packageUrl.protocol))
@@ -261,6 +263,7 @@ async function downloadFirmware(
       fileName: isTauri() ? "firmware.fwsc" : fileName,
       path,
       downloadedAt,
+      sha256: firmware.sha256,
     };
     const entries = [
       record,
@@ -278,13 +281,17 @@ async function downloadFirmware(
       );
     }
     downloadedFirmwares.value = entries;
-    downloadMessage.value = `${firmware.name} downloaded.`;
+    toast.value = {
+      message: `${firmware.name} downloaded.`,
+      variant: "success",
+    };
     if (installAfterDownload) await beginFirmwareInstall(firmware);
     return true;
   } catch (error) {
-    downloadIsError.value = true;
-    downloadMessage.value =
-      error instanceof Error ? error.message : String(error);
+    toast.value = {
+      message: error instanceof Error ? error.message : String(error),
+      variant: "error",
+    };
     return false;
   } finally {
     downloadingId.value = "";
@@ -317,18 +324,19 @@ async function beginFirmwareInstall(firmware: FirmwareRecord) {
 
 async function tryFirmware(firmware: FirmwareRecord) {
   if (!isTauri()) {
-    downloadIsError.value = true;
-    downloadMessage.value =
-      "Trying firmware in FM1-Emu is available in the desktop app.";
+    toast.value = {
+      message: "Trying firmware in FM1-Emu is available in the desktop app.",
+      variant: "info",
+    };
     return;
   }
   if (tryingId.value || downloadingId.value) return;
   tryingId.value = firmware.id;
-  downloadMessage.value = "";
-  downloadIsError.value = false;
+  toast.value = null;
   try {
     const previouslyDownloaded = hasDownloaded(firmware);
     if (!previouslyDownloaded && !(await downloadFirmware(firmware))) return;
+    toast.value = { message: "Starting emulator...", variant: "info" };
     const session = await invoke<EmulatorSavePrompt>(
       "open_firmware_in_emulator",
       {
@@ -338,26 +346,37 @@ async function tryFirmware(firmware: FirmwareRecord) {
     );
     const saved = await finishEmulatorSession(session);
     if (saved) {
-      downloadMessage.value = `Emulator session saved as ${saved.fileName}.${saved.warning ? ` ${saved.warning}` : ""}`;
+      toast.value = {
+        message: `Emulator session saved as ${saved.fileName}.${saved.warning ? ` ${saved.warning}` : ""}`,
+        variant: "success",
+      };
+    } else {
+      toast.value = {
+        message: "Emulator session not saved.",
+        variant: "info",
+      };
     }
     if (!previouslyDownloaded) {
       firmwareKeepPrompt.value = firmware;
-    } else if (!saved) {
-      downloadMessage.value = "Emulator session not saved.";
     }
   } catch (error) {
-    downloadIsError.value = true;
-    downloadMessage.value =
-      error instanceof Error ? error.message : String(error);
+    toast.value = {
+      message: error instanceof Error ? error.message : String(error),
+      variant: "error",
+    };
   } finally {
     tryingId.value = "";
   }
 }
 
 function keepTriedFirmware() {
-  if (firmwareKeepPrompt.value)
-    downloadMessage.value =
-      `Kept ${firmwareKeepPrompt.value.name} ${firmwareKeepPrompt.value.version ?? ""}.`.trim();
+  if (firmwareKeepPrompt.value) {
+    toast.value = {
+      message:
+        `Kept ${firmwareKeepPrompt.value.name} ${firmwareKeepPrompt.value.version ?? ""}.`.trim(),
+      variant: "success",
+    };
+  }
   firmwareKeepPrompt.value = null;
 }
 
@@ -378,15 +397,18 @@ async function discardTriedFirmware() {
       await store.set("downloadedFirmwares", downloadedFirmwares.value);
       await store.save();
     }
-    downloadMessage.value =
-      `Removed ${firmware.name} ${firmware.version ?? ""}.`.trim();
-    downloadIsError.value = false;
+    toast.value = {
+      message: `Removed ${firmware.name} ${firmware.version ?? ""}.`.trim(),
+      variant: "success",
+    };
   } catch (error) {
-    downloadIsError.value = true;
-    downloadMessage.value =
-      error instanceof Error
-        ? error.message
-        : "Could not remove the test firmware.";
+    toast.value = {
+      message:
+        error instanceof Error
+          ? error.message
+          : "Could not remove the test firmware.",
+      variant: "error",
+    };
   }
 }
 
@@ -641,14 +663,13 @@ const visibleFirmwares = computed(() => {
         }}</span
       >
     </div>
-    <p
-      v-if="downloadMessage"
-      class="download-feedback"
-      :class="{ 'is-error': downloadIsError }"
-      aria-live="polite"
-    >
-      {{ downloadMessage }}
-    </p>
+    <Toast
+      v-if="toast"
+      :message="toast.message"
+      :variant="toast.variant"
+      :reset-key="toast"
+      @dismiss="toast = null"
+    />
 
     <div v-if="loading && firmwares.length === 0" class="catalog-state">
       <span class="empty-mark">…</span>
@@ -1056,16 +1077,6 @@ const visibleFirmwares = computed(() => {
 .result-view-toggle button:focus-visible {
   outline: 2px solid #65e1c1;
   outline-offset: 1px;
-}
-.download-feedback {
-  margin: 0 0 12px;
-  color: #72e7c3;
-  font:
-    12px "Share Tech Mono",
-    monospace;
-}
-.download-feedback.is-error {
-  color: #ed9a7b;
 }
 @media (max-width: 600px) {
   .catalog-source {

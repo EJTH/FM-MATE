@@ -190,7 +190,7 @@ function openFromKeyboard(event: KeyboardEvent) {
           </div>
           <div class="detailed-result-card__engagement">
             <span v-if="firmware.version" class="detailed-result-card__version"
-              >v{{ firmware.version }}</span
+              >{{ firmware.version }}</span
             >
             <span
               v-if="typeof firmware.stars === 'number'"
@@ -263,16 +263,13 @@ function openFromKeyboard(event: KeyboardEvent) {
             @click="emit('tryFirmware')"
           >
             <svg
-              v-if="!trying"
               class="try-firmware-button__icon"
               viewBox="0 0 16 16"
               aria-hidden="true"
             >
               <path d="M4 2.5v11l9-5.5z" fill="currentColor" />
             </svg>
-            <span :class="{ 'try-firmware-button__running': trying }">
-              {{ trying ? "RUNNING…" : "TRY" }}
-            </span>
+            <span>TRY</span>
           </button>
           <button
             class="outline-button detailed-result-card__download"
@@ -343,7 +340,7 @@ function openFromKeyboard(event: KeyboardEvent) {
         </div>
         <div class="detailed-result-card__engagement">
           <span v-if="firmware.version" class="detailed-result-card__version"
-            >v{{ firmware.version }}</span
+            >{{ firmware.version }}</span
           >
           <span
             v-if="typeof firmware.stars === 'number'"
@@ -415,16 +412,13 @@ function openFromKeyboard(event: KeyboardEvent) {
           @click="emit('tryFirmware')"
         >
           <svg
-            v-if="!trying"
             class="try-firmware-button__icon"
             viewBox="0 0 16 16"
             aria-hidden="true"
           >
             <path d="M4 2.5v11l9-5.5z" fill="currentColor" />
           </svg>
-          <span :class="{ 'try-firmware-button__running': trying }">
-            {{ trying ? "RUNNING…" : "TRY" }}
-          </span>
+          <span>TRY</span>
         </button>
         <button
           class="outline-button detailed-result-card__download"
@@ -676,9 +670,6 @@ function openFromKeyboard(event: KeyboardEvent) {
   width: 13px;
   height: 13px;
   flex: none;
-}
-.try-firmware-button__running {
-  font-size: 11px;
 }
 .try-firmware-button:hover:not(:disabled) {
   color: #e5ffe1;

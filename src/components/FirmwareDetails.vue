@@ -12,7 +12,6 @@ const props = defineProps<{
   update?: FirmwareRecord | null;
   updateDownloading?: boolean;
   emulating?: boolean;
-  updateMessage?: string;
   catalogNotice?: string;
 }>();
 const emit = defineEmits<{
@@ -145,7 +144,7 @@ function editorUrl() {
       <section v-if="update" class="details-update">
         <div>
           <strong>NEW VERSION AVAILABLE</strong
-          ><span>v{{ update.version }}</span>
+          ><span>{{ update.version }}</span>
         </div>
         <div class="details-update__actions">
           <button
@@ -172,9 +171,6 @@ function editorUrl() {
       </section>
       <p v-if="catalogNotice" class="details-catalog-notice" role="status">
         {{ catalogNotice }}
-      </p>
-      <p v-if="updateMessage" class="details-update-message" role="status">
-        {{ updateMessage }}
       </p>
       <section class="details-versions">
         <div class="details-versions__heading">
@@ -207,7 +203,7 @@ function editorUrl() {
               :disabled="emulating"
               @click="emit('openInEmulator', version)"
             >
-              {{ emulating ? "EMULATOR RUNNING…" : "OPEN IN EMULATOR" }}
+              OPEN IN EMULATOR
             </button>
             <button
               v-if="editorUrl()"
@@ -402,6 +398,7 @@ function editorUrl() {
   background: #76dfa0;
   border: 1px solid #a1f2bd;
   font-weight: 700;
+  width: 320px;
 }
 .update-download-button:hover {
   background: #9bf0b8;
@@ -419,8 +416,7 @@ function editorUrl() {
   color: #fff;
   border-color: #8dd5a5;
 }
-.details-catalog-notice,
-.details-update-message {
+.details-catalog-notice {
   margin: -9px 0 14px;
   color: #9caaa0;
   font:
