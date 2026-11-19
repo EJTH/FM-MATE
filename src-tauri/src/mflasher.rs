@@ -1,7 +1,9 @@
 use serde::Serialize;
+use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::SystemTime;
 use tauri::{AppHandle, Emitter};
 use crate::{ensure_safe_name, firmware_root};
 use crate::tooldownload::{find_tool_executable, tools_root};
@@ -110,10 +112,11 @@ pub(super) async fn m_flasher_backup(
     app: AppHandle,
     firmware_id: String,
     version: String,
+    file_name: String,
     operation_id: String,
 ) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        m_flasher_backup_sync(app, firmware_id, version, operation_id)
+        m_flasher_backup_sync(app, firmware_id, version, file_name, operation_id)
     })
     .await
     .map_err(|error| format!("Could not wait for M-Flasher backup task: {error}"))?
@@ -123,16 +126,26 @@ fn m_flasher_backup_sync(
     app: AppHandle,
     firmware_id: String,
     version: String,
+    file_name: String,
     operation_id: String,
 ) -> Result<String, String> {
     ensure_safe_name(&firmware_id)?;
     ensure_safe_name(&version)?;
+    ensure_safe_name(&file_name)?;
+    if !file_name.to_ascii_lowercase().ends_with(".bin") {
+        return Err("Backup filename must end in .bin.".into());
+    }
     ensure_safe_name(&operation_id)?;
     let executable = m_flasher_executable(&app)?;
     let version_dir = firmware_root(&app)?.join(&firmware_id).join(&version);
     if !version_dir.join("firmware.fwsc").is_file() { return Err("Select an installed firmware version to store this save.".into()); }
     let saves_dir = version_dir.join("saves");
     std::fs::create_dir_all(&saves_dir).map_err(|error| format!("Could not create saves folder: {error}"))?;
+    let destination = saves_dir.join(&file_name);
+    if destination.exists() {
+        return Err(format!("A backup named {file_name} already exists."));
+    }
+    let previous_files = backup_file_snapshot(&saves_dir)?;
     let mut child = Command::new(executable)
         .arg("backup")
         .arg(&saves_dir)
@@ -153,7 +166,68 @@ fn m_flasher_backup_sync(
     let stderr_text = stderr_reader.join().map_err(|_| "Could not collect M-Flasher progress.")?;
     let text = format!("{stdout_text}{stderr_text}").trim().to_string();
     if !status.success() { return Err(if text.is_empty() { "M-Flasher backup failed.".into() } else { text }); }
-    Ok(if text.is_empty() { format!("Backup saved under {}.", saves_dir.display()) } else { text })
+    let changed_files = backup_file_snapshot(&saves_dir)?
+        .into_iter()
+        .filter(|(path, state)| {
+            path.extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("bin"))
+                && previous_files.get(path) != Some(state)
+        })
+        .map(|(path, _)| path)
+        .collect::<Vec<_>>();
+    let generated_file = match changed_files.as_slice() {
+        [path] => path,
+        [] => return Err("M-Flasher completed, but no new backup file was found.".into()),
+        _ => return Err("M-Flasher created multiple backup files; none were renamed.".into()),
+    };
+    if generated_file != &destination {
+        if destination.exists() {
+            return Err(format!("A backup named {file_name} already exists."));
+        }
+        std::fs::rename(generated_file, &destination)
+            .map_err(|error| format!("Could not rename backup to {file_name}: {error}"))?;
+    }
+    Ok(if text.is_empty() { format!("Backup saved as {file_name}.") } else { text })
+}
+
+fn backup_file_snapshot(root: &Path) -> Result<HashMap<PathBuf, (u64, SystemTime)>, String> {
+    fn visit(
+        current: &Path,
+        files: &mut HashMap<PathBuf, (u64, SystemTime)>,
+    ) -> Result<(), String> {
+        let entries = std::fs::read_dir(current)
+            .map_err(|error| format!("Could not read saves folder: {error}"))?;
+        for entry in entries {
+            let entry = entry.map_err(|error| format!("Could not read saves folder entry: {error}"))?;
+            let path = entry.path();
+            let file_type = entry
+                .file_type()
+                .map_err(|error| format!("Could not inspect backup file: {error}"))?;
+            if file_type.is_dir() {
+                visit(&path, files)?;
+            } else if file_type.is_file() {
+                let is_bin = path
+                    .extension()
+                    .and_then(|extension| extension.to_str())
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("bin"));
+                if is_bin {
+                    let metadata = entry
+                        .metadata()
+                        .map_err(|error| format!("Could not inspect backup file: {error}"))?;
+                    let modified = metadata
+                        .modified()
+                        .map_err(|error| format!("Could not read backup modification time: {error}"))?;
+                    files.insert(path, (metadata.len(), modified));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    let mut files = HashMap::new();
+    visit(root, &mut files)?;
+    Ok(files)
 }
 
 #[derive(Clone, Serialize)]

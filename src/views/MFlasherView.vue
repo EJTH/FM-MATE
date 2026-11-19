@@ -4,6 +4,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import LcdDisplay from "../components/LcdDisplay.vue";
 import ConfirmationDialog from "../components/ConfirmationDialog.vue";
+import PromptDialog from "../components/PromptDialog.vue";
 import type {
   MFlasherLcdState,
   MFlasherRequest,
@@ -69,6 +70,10 @@ const confirmationDialog = ref<{
   cancelLabel: string;
   onConfirm: () => void;
 } | null>(null);
+const backupPromptOpen = ref(false);
+const backupFileName = ref("");
+const backupPromptError = ref("");
+let resolveBackupFileName: ((fileName: string | null) => void) | null = null;
 let handledRequestId = 0;
 let shownRequestId = 0;
 const backupOptions = computed<BackupOption[]>(() =>
@@ -86,6 +91,51 @@ const selectedBackupOption = computed(
       (option) => option.key === selectedBackupTarget.value,
     ) ?? null,
 );
+function defaultBackupFileName(target: BackupOption) {
+  const now = new Date();
+  const date = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+  ].join("-");
+  const time = [
+    String(now.getHours()).padStart(2, "0"),
+    String(now.getMinutes()).padStart(2, "0"),
+    String(now.getSeconds()).padStart(2, "0"),
+  ].join("-");
+  return `${target.firmwareId}-${target.version}-${date}-${time}.bin`;
+}
+function askForBackupFileName(defaultFileName: string): Promise<string | null> {
+  backupFileName.value = defaultFileName;
+  backupPromptError.value = "";
+  backupPromptOpen.value = true;
+  return new Promise((resolve) => {
+    resolveBackupFileName = resolve;
+  });
+}
+function finishBackupFileName(fileName: string | null) {
+  backupPromptOpen.value = false;
+  const resolve = resolveBackupFileName;
+  resolveBackupFileName = null;
+  resolve?.(fileName);
+}
+function submitBackupFileName() {
+  const fileName = backupFileName.value.trim();
+  if (
+    !fileName ||
+    /[<>:"/\\|?*\u0000-\u001f]/.test(fileName) ||
+    fileName === "." ||
+    fileName === ".."
+  ) {
+    backupPromptError.value = "Enter a valid backup filename.";
+    return;
+  }
+  if (!fileName.toLocaleLowerCase().endsWith(".bin")) {
+    backupPromptError.value = "Backup filenames must end in .bin.";
+    return;
+  }
+  finishBackupFileName(fileName);
+}
 const pendingActionReady = computed(() => {
   const request = props.pendingAction;
   if (
@@ -587,6 +637,8 @@ async function primaryAction() {
 }
 
 async function backupDevice(): Promise<boolean> {
+  if (backupPromptOpen.value) return false;
+  const target = selectedBackupOption.value;
   const [firmwareId, version] = selectedBackupTarget.value.split("::");
   if (!firmwareId || !version) {
     const message =
@@ -595,6 +647,11 @@ async function backupDevice(): Promise<boolean> {
     lcdStatusError.value = message;
     return false;
   }
+  const promptedFileName = await askForBackupFileName(
+    target ? defaultBackupFileName(target) : "",
+  );
+  if (promptedFileName === null) return false;
+  const fileName = promptedFileName;
   busyAction.value = "backup";
   clearLcdFeedback();
   lastError.value = "";
@@ -631,6 +688,7 @@ async function backupDevice(): Promise<boolean> {
     const output = await invoke<string>("m_flasher_backup", {
       firmwareId,
       version,
+      fileName,
       operationId,
     });
     backupProgress.value = 100;
@@ -1063,6 +1121,17 @@ function cancelPendingAction() {
     @confirm="confirmationDialog.onConfirm"
     @secondary="confirmationDialog = null"
     @cancel="confirmationDialog = null"
+  />
+  <PromptDialog
+    v-if="backupPromptOpen"
+    v-model="backupFileName"
+    title="SAVE DEVICE BACKUP"
+    label="Backup filename:"
+    description="Choose a name for the backup file."
+    confirm-label="CONTINUE"
+    :error-message="backupPromptError"
+    @submit="submitBackupFileName"
+    @cancel="finishBackupFileName(null)"
   />
 </template>
 
