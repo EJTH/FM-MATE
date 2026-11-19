@@ -113,7 +113,10 @@ async function deleteSave(save: InstalledSave) {
 
 async function emulateSave(save: InstalledSave) {
   if (emulating.value) return;
-  toast.value = null;
+  toast.value = {
+    message: `Starting ${save.firmwareName} ${save.version} in emulator...`,
+    variant: "info",
+  };
   emulating.value = true;
   try {
     const savePrompt = await invoke<EmulatorSavePrompt>(

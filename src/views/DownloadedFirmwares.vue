@@ -305,7 +305,10 @@ async function openInEmulator(
     return;
   }
   emulating.value = true;
-  toast.value = { message: "Starting emulator...", variant: "info" };
+  toast.value = {
+    message: `Starting ${firmware.name} ${version.version} in emulator...`,
+    variant: "info",
+  };
   try {
     const savePrompt = await invoke<EmulatorSavePrompt>(
       "open_firmware_in_emulator",
