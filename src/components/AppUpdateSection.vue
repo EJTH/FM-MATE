@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { isTauri } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { getAppRelease, type AppUpdateInfo } from "../services/appRelease";
 
 const updateInfo = ref<AppUpdateInfo | null>(null);
+const releaseUrl = ref<string | null>(null);
 const checkingUpdates = ref(false);
 const updateMessage = ref("");
 const updateError = ref(false);
@@ -18,11 +20,13 @@ async function checkForUpdates() {
   updateMessage.value = "";
   updateError.value = false;
   try {
-    const info = (await getAppRelease()).updateInfo;
+    const release = await getAppRelease();
+    const info = release.updateInfo;
     if (!info) throw new Error("Update information is unavailable.");
     updateInfo.value = info;
+    releaseUrl.value = release.htmlUrl;
     if (info.isUpdateAvailable) {
-      updateMessage.value = `A new version ${info.latestVersion} is available! Visit GitHub to download the latest release.`;
+      updateMessage.value = `A new version ${info.latestVersion} is available.`;
       updateError.value = false;
     } else {
       updateMessage.value = `You are running the latest version (${info.currentVersion}).`;
@@ -44,6 +48,26 @@ async function checkForUpdates() {
     checkingUpdates.value = false;
   }
 }
+
+async function openRelease() {
+  try {
+    await openUrl(
+      releaseUrl.value || "https://github.com/EJTH/FM-MATE/releases/latest",
+    );
+  } catch (error) {
+    console.error("Could not open the app download page:", error);
+    updateError.value = true;
+    updateMessage.value = "Could not open the download page.";
+  }
+}
+
+async function handleUpdateButtonClick() {
+  if (updateInfo.value?.isUpdateAvailable) {
+    await openRelease();
+    return;
+  }
+  await checkForUpdates();
+}
 </script>
 
 <template>
@@ -55,9 +79,15 @@ async function checkForUpdates() {
     <button
       class="outline-button"
       :disabled="!isTauri() || checkingUpdates"
-      @click="checkForUpdates"
+      @click="handleUpdateButtonClick"
     >
-      {{ checkingUpdates ? "CHECKING..." : "CHECK FOR UPDATES" }}
+      {{
+        checkingUpdates
+          ? "CHECKING..."
+          : updateInfo?.isUpdateAvailable
+            ? `Download ${updateInfo.latestVersion} →`
+            : "CHECK FOR UPDATES"
+      }}
     </button>
     <p v-if="!isTauri()" class="settings-feedback">
       Update checks are available in the desktop app.
@@ -70,18 +100,6 @@ async function checkForUpdates() {
     >
       {{ updateMessage }}
     </p>
-    <p
-      v-if="updateInfo && updateInfo.isUpdateAvailable"
-      class="settings-feedback"
-    >
-      <a
-        href="https://github.com/EJTH/FM-MATE/releases/latest"
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        Download {{ updateInfo.latestVersion }} →
-      </a>
-    </p>
   </section>
 </template>
 
@@ -92,12 +110,4 @@ async function checkForUpdates() {
   margin-top: 1.5rem;
 }
 
-.settings-feedback a {
-  color: var(--color-link);
-  text-decoration: none;
-}
-
-.settings-feedback a:hover {
-  text-decoration: underline;
-}
 </style>
