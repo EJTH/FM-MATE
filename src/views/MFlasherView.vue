@@ -5,6 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import LcdDisplay from "../components/LcdDisplay.vue";
 import ConfirmationDialog from "../components/ConfirmationDialog.vue";
 import PromptDialog from "../components/PromptDialog.vue";
+import { findConnectedFirmwareVersion } from "../services/firmwareCatalog";
 import type {
   MFlasherLcdState,
   MFlasherRequest,
@@ -38,6 +39,7 @@ interface ScannedFirmware {
   currentVersion?: string | null;
   downloadedAt?: string;
   info?: Record<string, unknown>;
+  versionInfo?: Record<string, unknown> | null;
 }
 
 const devices = ref<ScannedFirmware[]>([]);
@@ -63,6 +65,7 @@ const flashProgress = ref<number | null>(null);
 const lcdStatusError = ref("");
 const lcdCompletion = ref("");
 const switchStage = ref<"choose" | "flash">("choose");
+const upgradeFromV15 = ref(false);
 const confirmationDialog = ref<{
   title: string;
   message: string;
@@ -343,10 +346,11 @@ function quoteCommandArgument(value: string) {
   return `"${value.replace(/"/g, '\\"')}"`;
 }
 
-async function showPendingCommand(request: MFlasherRequest) {
-  if (shownRequestId === request.requestId) return;
+async function showPendingCommand(request: MFlasherRequest, force = false) {
+  if (!force && shownRequestId === request.requestId) return;
   shownRequestId = request.requestId;
-  if (request.type === "switch-firmware") switchStage.value = "choose";
+  if (!force && request.type === "switch-firmware") switchStage.value = "choose";
+  const upgrade = upgradeFromV15.value;
   try {
     const root =
       request.type === "flash-bootloader"
@@ -378,7 +382,10 @@ async function showPendingCommand(request: MFlasherRequest) {
         request.version,
         "firmware.fwsc",
       );
-      const flashCommand = `m-flasher firmware ${quoteCommandArgument(firmwareFile)} --yes --restart`;
+      const selectedFlashCommand = `m-flasher firmware ${quoteCommandArgument(firmwareFile)} --yes --restart`;
+      const flashCommand = upgrade
+        ? `m-flasher firmware <original FM-1 v15 firmware> --yes --restart\n${selectedFlashCommand}`
+        : selectedFlashCommand;
       if (request.type === "switch-firmware" && request.automaticallyBackup) {
         const target = selectedBackupOption.value;
         if (!target)
@@ -518,7 +525,32 @@ async function findDevice() {
     }
     detected.value = result;
     appendTerminal("find", result.output || "No device found.");
-    if (!matchTarget(matchingFirmware.value)) restoreBackupTarget();
+    const connectedFirmware =
+      result.deviceFound && !result.downloadMode && result.deviceName
+        ? findConnectedFirmwareVersion(result.deviceName, devices.value)
+        : null;
+    if (
+      connectedFirmware &&
+      connectedFirmware.currentVersion !== connectedFirmware.version
+    ) {
+      try {
+        await invoke("set_current_firmware_version", {
+          id: connectedFirmware.id,
+          version: connectedFirmware.version,
+        });
+        for (const firmware of devices.value) {
+          if (firmware.id === connectedFirmware.id)
+            firmware.currentVersion = connectedFirmware.version;
+        }
+      } catch (error) {
+        const message = `Could not update the current firmware version: ${String(error)}`;
+        console.error(message);
+        appendTerminal("find", message);
+        lcdStatusError.value = message;
+      }
+    }
+    if (!matchTarget(connectedFirmware ?? matchingFirmware.value))
+      restoreBackupTarget();
     if (!result.deviceFound)
       lastError.value = "No compatible device was found.";
     if (result.deviceFound && !result.downloadMode) lastError.value = "";
@@ -737,6 +769,7 @@ async function flashFirmwareRequest(
       firmwareId: request.firmwareId,
       version: request.version,
       operationId,
+      upgradeFromV15: upgradeFromV15.value,
     });
     flashProgress.value = 100;
     appendTerminal(
@@ -887,9 +920,16 @@ onActivated(activateView);
 watch(
   () => props.pendingAction,
   (request) => {
+    upgradeFromV15.value = false;
     if (request?.type === "flash-bootloader") void showPendingCommand(request);
   },
 );
+
+function updateUpgradePreview() {
+  const request = props.pendingAction;
+  if (request?.type === "flash-firmware" || request?.type === "switch-firmware")
+    void showPendingCommand(request, true);
+}
 
 function confirmPendingAction() {
   if (props.pendingAction) void handlePendingAction(props.pendingAction);
@@ -1067,6 +1107,27 @@ function cancelPendingAction() {
             {{ busyAction === "info" ? "READING…" : "Flash m-bootloader" }}
           </button>
         </div>
+        <div
+          v-if="
+            pendingAction?.type === 'flash-firmware' ||
+            pendingAction?.type === 'switch-firmware'
+          "
+          class="upgrade-option"
+        >
+          <label>
+            <input
+              v-model="upgradeFromV15"
+              type="checkbox"
+              :disabled="!!busyAction"
+              aria-describedby="upgrade-v15-help"
+              @change="updateUpgradePreview"
+            />
+            Upgrade from original FM-1 v15 firmware
+          </label>
+          <p id="upgrade-v15-help">
+            Some firmwares rely on V15 being installed first for Bluetooth functionality.
+          </p>
+        </div>
         <label class="backup-firmware-picker">
           FIRMWARE TO ASSOCIATE WITH THIS SAVE
           <select
@@ -1229,6 +1290,23 @@ function cancelPendingAction() {
 .pending-cancel {
   min-width: 145px;
   min-height: 58px;
+}
+
+.upgrade-option {
+  margin-top: 14px;
+  color: #e3dcd2;
+  font: 12px "Share Tech Mono", monospace;
+}
+
+.upgrade-option label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.upgrade-option p {
+  margin: 6px 0 0;
+  color: #b49bdc;
 }
 
 .backup-firmware-picker {

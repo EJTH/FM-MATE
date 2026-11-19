@@ -420,9 +420,10 @@ pub(super) async fn m_flasher_flash_firmware(
     firmware_id: String,
     version: String,
     operation_id: String,
+    upgrade_from_v15: bool,
 ) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        m_flasher_flash_firmware_sync(app, firmware_id, version, operation_id)
+        m_flasher_flash_firmware_sync(app, firmware_id, version, operation_id, upgrade_from_v15)
     })
     .await
     .map_err(|error| format!("Could not wait for M-Flasher flash task: {error}"))?
@@ -433,6 +434,7 @@ fn m_flasher_flash_firmware_sync(
     firmware_id: String,
     version: String,
     operation_id: String,
+    upgrade_from_v15: bool,
 ) -> Result<String, String> {
     ensure_safe_name(&firmware_id)?;
     ensure_safe_name(&version)?;
@@ -441,7 +443,50 @@ fn m_flasher_flash_firmware_sync(
     if !firmware_file.is_file() {
         return Err("That firmware version is not installed.".into());
     }
+    let v15_file = if upgrade_from_v15 {
+        let path = crate::default_sdk_firmware_path(&app)?;
+        if !path.is_file() {
+            return Err("Original FM-1 v15 firmware is unavailable. Restart the app to retry its download before upgrading.".into());
+        }
+        Some(path)
+    } else {
+        None
+    };
     let executable = m_flasher_executable(&app)?;
+    let text = flash_firmware_sequence(v15_file.as_deref(), &firmware_file, |file| {
+        flash_firmware_file(&app, &executable, file, &operation_id)
+    })?;
+    crate::firmwarehub::set_current_firmware_version(app, firmware_id, version)?;
+    Ok(text)
+}
+
+fn flash_firmware_sequence(
+    v15_file: Option<&Path>,
+    firmware_file: &Path,
+    mut flash: impl FnMut(&Path) -> Result<String, String>,
+) -> Result<String, String> {
+    let mut output = String::new();
+    if let Some(path) = v15_file {
+        let v15_output = flash(path).map_err(|error| format!("Original FM-1 v15 installation failed; selected firmware was not installed: {error}"))?;
+        output.push_str(&format!("Original FM-1 v15 installed:\n{v15_output}\n"));
+    }
+    let firmware_output = flash(firmware_file).map_err(|error| {
+        if v15_file.is_some() {
+            format!("Original FM-1 v15 was installed, but the selected firmware installation failed: {error}")
+        } else {
+            error
+        }
+    })?;
+    output.push_str(&firmware_output);
+    Ok(output)
+}
+
+fn flash_firmware_file(
+    app: &AppHandle,
+    executable: &Path,
+    firmware_file: &Path,
+    operation_id: &str,
+) -> Result<String, String> {
     ensure_device_in_download_mode(&executable)?;
     let mut child = Command::new(executable)
         .arg("firmware")
@@ -456,17 +501,56 @@ fn m_flasher_flash_firmware_sync(
     let stdout = child.stdout.take().ok_or("Could not read M-Flasher output.")?;
     let stderr = child.stderr.take().ok_or("Could not read M-Flasher progress.")?;
     let stdout_app = app.clone();
-    let stdout_operation = operation_id.clone();
+    let stdout_operation = operation_id.to_string();
     let stdout_reader = std::thread::spawn(move || stream_flash_output(stdout, stdout_app, stdout_operation));
     let app_clone = app.clone();
-    let operation_id_clone = operation_id.clone();
+    let operation_id_clone = operation_id.to_string();
     let stderr_reader = std::thread::spawn(move || stream_flash_output(stderr, app_clone, operation_id_clone));
     let status = child.wait().map_err(|error| format!("Could not wait for M-Flasher firmware install: {error}"))?;
     let stdout_text = stdout_reader.join().map_err(|_| "Could not collect M-Flasher output.")?;
     let stderr_text = stderr_reader.join().map_err(|_| "Could not collect M-Flasher progress.")?;
     let text = format!("{stdout_text}{stderr_text}").trim().to_string();
     if !status.success() { return Err(if text.is_empty() { "M-Flasher firmware install failed.".into() } else { text }); }
-    crate::firmwarehub::set_current_firmware_version(app, firmware_id, version)?;
     Ok(if text.is_empty() { format!("Firmware flashed successfully.") } else { text })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn firmware_sequence_flashes_v15_before_target_only_when_requested() {
+        let v15 = Path::new("v15.fwsc");
+        let target = Path::new("target.fwsc");
+        for (prerequisite, expected) in [
+            (Some(v15), vec![v15, target]),
+            (None, vec![target]),
+        ] {
+            let mut flashed = Vec::new();
+            flash_firmware_sequence(prerequisite, target, |path| {
+                flashed.push(path.to_path_buf());
+                Ok("ok".into())
+            }).unwrap();
+            assert_eq!(flashed, expected);
+        }
+    }
+
+    #[test]
+    fn firmware_sequence_stops_if_v15_fails_and_reports_target_failure() {
+        let v15 = Path::new("v15.fwsc");
+        let target = Path::new("target.fwsc");
+        let mut flashed = Vec::new();
+        let error = flash_firmware_sequence(Some(v15), target, |path| {
+            flashed.push(path.to_path_buf());
+            Err("write failed".into())
+        }).unwrap_err();
+        assert_eq!(flashed, vec![v15]);
+        assert!(error.contains("selected firmware was not installed"));
+
+        let error = flash_firmware_sequence(Some(v15), target, |path| {
+            if path == target { Err("write failed".into()) } else { Ok("ok".into()) }
+        }).unwrap_err();
+        assert!(error.contains("v15 was installed"));
+    }
 }
 

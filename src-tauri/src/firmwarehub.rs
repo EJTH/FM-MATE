@@ -276,6 +276,7 @@ pub(super) struct InstalledFirmware {
     saves: Vec<String>,
     thumbnail_data: Option<String>,
     info: serde_json::Value,
+    version_info: Option<serde_json::Value>,
     editor_path: Option<String>,
     sha256: String,
 }
@@ -373,20 +374,20 @@ pub(super) fn scan_installed_firmwares(app: AppHandle) -> Result<Vec<InstalledFi
             let version = version_entry.file_name().to_string_lossy().into_owned();
             let version_info = std::fs::read(version_dir.join("info.json"))
                 .ok()
-                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-                .unwrap_or_else(|| root_info.clone());
+                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+            let version_metadata = version_info.as_ref().unwrap_or(&root_info);
             let saves_path = version_dir.join("saves");
             let saves = list_save_files(&saves_path);
             installed.push(InstalledFirmware {
                 id: json_string(&root_info, "id", &folder_id),
                 name: json_string(&root_info, "name", &folder_id),
-                version: json_string(&version_info, "version", &version),
+                version: json_string(version_metadata, "version", &version),
                 kind: json_string(&root_info, "kind", "Other"),
                 description: json_string(&root_info, "what", ""),
                 author: json_string(&root_info, "author", ""),
                 file_name: "firmware.fwsc".into(),
                 path: firmware_file.to_string_lossy().into_owned(),
-                downloaded_at: json_string(&version_info, "downloadedAt", ""),
+                downloaded_at: json_string(version_metadata, "downloadedAt", ""),
                 current_version: root_info
                     .get("currentVersion")
                     .and_then(serde_json::Value::as_str)
@@ -396,11 +397,12 @@ pub(super) fn scan_installed_firmwares(app: AppHandle) -> Result<Vec<InstalledFi
                 saves,
                 thumbnail_data: thumbnail_data.take(),
                 info: root_info.clone(),
+                version_info: version_info.clone(),
                 editor_path: {
                     let path = version_dir.join("editor").join("editor.html");
                     path.is_file().then(|| path.to_string_lossy().into_owned())
                 },
-                sha256: json_string(&version_info, "sha256", ""),
+                sha256: json_string(version_metadata, "sha256", ""),
             });
         }
     }

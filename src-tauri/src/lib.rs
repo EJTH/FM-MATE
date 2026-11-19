@@ -1,6 +1,9 @@
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
+const DEFAULT_SDK_URL: &str =
+    "https://github.com/m-vave/fm1_open/raw/refs/heads/main/sdk/firmware/FM-1_015.fwsc";
+
 mod firmwarehub;
 mod app_release;
 mod mflasher;
@@ -52,11 +55,56 @@ pub(crate) fn firmware_root(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app_data.join("firmwares"))
 }
 
+pub(crate) fn default_sdk_firmware_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Could not locate app data folder: {error}"))?;
+    Ok(app_data.join("sdk").join("FM-1_015.fwsc"))
+}
+
+async fn ensure_default_sdk_downloaded(app: AppHandle) -> Result<(), String> {
+    let sdk_file = default_sdk_firmware_path(&app)?;
+    if sdk_file.is_file() {
+        return Ok(());
+    }
+
+    std::fs::create_dir_all(sdk_file.parent().ok_or("Invalid SDK firmware path.")?)
+        .map_err(|error| format!("Could not create SDK folder: {error}"))?;
+
+    let response = firmwarehub::make_http_client()?
+        .get(DEFAULT_SDK_URL)
+        .send()
+        .await
+        .map_err(|error| format!("Could not download default SDK firmware: {error}"))?
+        .error_for_status()
+        .map_err(|error| format!("Default SDK firmware download failed: {error}"))?;
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|error| format!("Could not read default SDK firmware download: {error}"))?;
+    if bytes.is_empty() {
+        return Err("Default SDK firmware download was empty.".into());
+    }
+    std::fs::write(&sdk_file, &bytes)
+        .map_err(|error| format!("Could not save default SDK firmware: {error}"))?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        .setup(|app| {
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = ensure_default_sdk_downloaded(app_handle).await {
+                    eprintln!("{error}");
+                }
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             greet,
             firmwarehub::get_firmware_thumbnail,
