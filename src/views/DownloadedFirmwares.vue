@@ -14,7 +14,9 @@ import {
   getRepositoryUrl,
   loadFirmwareCatalog,
   isNewerFirmwareVersion,
-
+  getFavoriteFirmwareIds,
+  getInstalledFirmwares,
+  ScannedFirmware,
 
 } from "../services/firmwareCatalog";
 import type { FirmwareRecord } from "../services/firmwareCatalog";
@@ -30,24 +32,6 @@ const emit = defineEmits<{
   detailsOpened: [firmwareId: string];
 }>();
 
-interface ScannedFirmware {
-  id: string;
-  name: string;
-  version: string;
-  kind: string;
-  description: string;
-  author: string;
-  fileName: string;
-  path: string;
-  downloadedAt: string;
-  savesPath: string;
-  savesCount: number;
-  saves: string[];
-  currentVersion?: string | null;
-  thumbnailData?: string | null;
-  info: Record<string, unknown>;
-  editorPath?: string | null;
-}
 
 const store = new LazyStore("settings.json", { autoSave: true });
 const scannedFirmwares = ref<ScannedFirmware[]>([]);
@@ -127,22 +111,12 @@ async function loadDownloads() {
   loadError.value = false;
   actionMessage.value = "";
   try {
-    if (isTauri()) {
-      favoriteIds.value =
-        (await store.get<string[]>("favoriteFirmwareIds")) ?? [];
-      scannedFirmwares.value = await invoke<ScannedFirmware[]>(
-        "scan_installed_firmwares",
-      );
-      await store.set("downloadedFirmwares", scannedFirmwares.value);
-      await store.save();
-    } else {
-      favoriteIds.value = JSON.parse(
-        localStorage.getItem("fm-mate.favoriteFirmwareIds") ?? "[]",
-      ) as string[];
-      scannedFirmwares.value = JSON.parse(
-        localStorage.getItem("fm-mate.downloadedFirmwares") ?? "[]",
-      ) as ScannedFirmware[];
-    }
+    getInstalledFirmwares().then((firmwares: ScannedFirmware[]) => {
+      scannedFirmwares.value = firmwares;
+    });
+    getFavoriteFirmwareIds().then((ids) => {
+      favoriteIds.value = ids;
+    });
   } catch {
     loadError.value = true;
   } finally {

@@ -157,7 +157,7 @@ function editorUrl() {
             {{
               updateDownloading
                 ? "DOWNLOADING…"
-                : `Download new version (v${update.version})`
+                : `Download new version (${update.version})`
             }}
           </button>
           <button

@@ -277,6 +277,7 @@ pub(super) struct InstalledFirmware {
     thumbnail_data: Option<String>,
     info: serde_json::Value,
     editor_path: Option<String>,
+    sha256: String,
 }
 
 pub(crate) fn json_string(value: &serde_json::Value, key: &str, fallback: &str) -> String {
@@ -399,6 +400,7 @@ pub(super) fn scan_installed_firmwares(app: AppHandle) -> Result<Vec<InstalledFi
                     let path = version_dir.join("editor").join("editor.html");
                     path.is_file().then(|| path.to_string_lossy().into_owned())
                 },
+                sha256: json_string(&version_info, "sha256", ""),
             });
         }
     }

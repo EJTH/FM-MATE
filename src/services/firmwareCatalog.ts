@@ -1,6 +1,7 @@
 import { LazyStore } from "@tauri-apps/plugin-store";
-import { isTauri } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { DEFAULT_FIRMWARE_REPOSITORY_URL } from "../config";
+
 
 export interface FirmwareRecord {
   id: string;
@@ -28,6 +29,27 @@ export interface FirmwareRecord {
   [key: string]: unknown;
 }
 
+export interface ScannedFirmware {
+  id: string;
+  name: string;
+  version: string;
+  kind: string;
+  description: string;
+  author: string;
+  fileName: string;
+  path: string;
+  downloadedAt: string;
+  savesPath: string;
+  savesCount: number;
+  saves: string[];
+  currentVersion?: string | null;
+  thumbnailData?: string | null;
+  info: Record<string, unknown>;
+  editorPath?: string | null;
+  sha256?: string | null;
+}
+
+
 export interface DownloadedFirmware {
   id: string;
   name: string;
@@ -36,6 +58,7 @@ export interface DownloadedFirmware {
   fileName: string;
   path: string;
   downloadedAt: string;
+  sha256?: string | null;
 }
 
 
@@ -83,10 +106,22 @@ export function isNewerFirmwareVersion(
   return downloaded.some(
     (download: DownloadedFirmware) =>
       firmware.id == download.id &&
-      download.version !== (firmware.version ?? ""),
+      download.sha256 !== (firmware.sha256 ?? ""),
   );
 
 }
+
+export async function getInstalledFirmwares() {
+  return await invoke<ScannedFirmware[]>(
+    "scan_installed_firmwares",
+  );
+
+}
+
+export async function getFavoriteFirmwareIds() {
+  return (await store.get<string[]>("favoriteFirmwareIds")) ?? [];
+}
+
 
 export async function getRepositoryUrl() {
   if (isTauri()) {
