@@ -1,37 +1,28 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from "vue";
 import ToolDownloadsSection from "./ToolDownloadsSection.vue";
+import { getAppRelease } from "../services/appRelease";
 
 const props = defineProps<{ mode: "newuser" | "changelog"; version: string }>();
 const emit = defineEmits<{ dismiss: [] }>();
 const changelog = ref("");
 const changelogError = ref("");
 const loadingChangelog = ref(false);
-const releaseController = new AbortController();
+let unmounted = false;
 
 onMounted(async () => {
   if (props.mode !== "changelog") return;
   loadingChangelog.value = true;
   try {
-    const response = await fetch(
-      `https://api.github.com/repos/EJTH/FM-MATE/releases`,
-      {
-        headers: { Accept: "application/vnd.github+json" },
-        signal: releaseController.signal,
-      },
-    );
-    console.log(response);
-    if (!response.ok)
-      throw new Error(`GitHub returned HTTP ${response.status}.`);
-    const releases: Array<{ body?: unknown }> = await response.json();
-    const release = releases.find((item) => item.body);
+    const release = await getAppRelease();
+    if (unmounted) return;
     if (typeof release?.body !== "string" || !release?.body.trim())
       throw new Error("This release has no notes.");
     changelog.value = release.body
       .trim()
       .replace(/#+(.+)\n/g, (_, title) => `<h3>${title}</h3>`);
   } catch (error) {
-    if (!releaseController.signal.aborted) {
+    if (!unmounted) {
       console.error("Could not load release notes:", error);
       changelogError.value =
         "Could not load release notes. Check your connection or visit the releases page.";
@@ -41,7 +32,7 @@ onMounted(async () => {
   }
 });
 
-onBeforeUnmount(() => releaseController.abort());
+onBeforeUnmount(() => { unmounted = true; });
 </script>
 
 <template>
@@ -92,7 +83,7 @@ onBeforeUnmount(() => releaseController.abort());
           <p v-else-if="changelogError" role="status">
             {{ changelogError }}
             <a
-              href="https://github.com/EJTH/FM-MATE/releases"
+              href="https://github.com/EJTH/FM-MATE/releases/latest"
               target="_blank"
               rel="noopener noreferrer"
               >View releases</a

@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
 mod firmwarehub;
+mod app_release;
 mod mflasher;
 mod tooldownload;
 mod editor_helper;
@@ -76,7 +77,7 @@ pub fn run() {
             firmwarehub::delete_installed_save,
             tooldownload::get_tools_status,
             tooldownload::check_or_update_tool,
-            tooldownload::check_app_update,
+            app_release::check_app_update,
             emulator_helper::open_firmware_in_emulator,
             emulator_helper::open_save_in_emulator,
             emulator_helper::finish_emulator_session,

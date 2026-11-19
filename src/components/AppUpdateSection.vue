@@ -1,12 +1,9 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { isTauri } from "@tauri-apps/api/core";
+import { getAppRelease, type AppUpdateInfo } from "../services/appRelease";
 
-const updateInfo = ref<{
-  isUpdateAvailable: boolean;
-  currentVersion: string;
-  latestVersion?: string;
-} | null>(null);
+const updateInfo = ref<AppUpdateInfo | null>(null);
 const checkingUpdates = ref(false);
 const updateMessage = ref("");
 const updateError = ref(false);
@@ -21,11 +18,8 @@ async function checkForUpdates() {
   updateMessage.value = "";
   updateError.value = false;
   try {
-    const info = await invoke<{
-      isUpdateAvailable: boolean;
-      currentVersion: string;
-      latestVersion?: string;
-    }>("check_app_update");
+    const info = (await getAppRelease()).updateInfo;
+    if (!info) throw new Error("Update information is unavailable.");
     updateInfo.value = info;
     if (info.isUpdateAvailable) {
       updateMessage.value = `A new version ${info.latestVersion} is available! Visit GitHub to download the latest release.`;
@@ -55,7 +49,9 @@ async function checkForUpdates() {
 <template>
   <section class="settings-group app-update">
     <h2>APP UPDATES</h2>
-    <p class="repo-description">Check for new versions of FM-MATE.</p>
+    <p class="repo-description">
+      Update information is checked on app startup. Restart the app to check again.
+    </p>
     <button
       class="outline-button"
       :disabled="!isTauri() || checkingUpdates"

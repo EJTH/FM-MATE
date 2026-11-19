@@ -13,6 +13,7 @@ import BackupsSaves from "./views/BackupsSaves.vue";
 import SettingsView from "./views/SettingsView.vue";
 import MFlasherView from "./views/MFlasherView.vue";
 import { appVersion, isNewerAppVersion } from "./services/appVersion";
+import { getAppRelease } from "./services/appRelease";
 import {
   findFirmwareUpdate,
   getInstalledFirmwares,
@@ -179,10 +180,8 @@ onBeforeUnmount(() => {
 onMounted(async () => {
   if (!isTauri()) return;
   try {
-    const update = await invoke<{ isUpdateAvailable: boolean }>(
-      "check_app_update",
-    );
-    appUpdateAvailable.value = update.isUpdateAvailable;
+    const release = await getAppRelease();
+    appUpdateAvailable.value = release.updateInfo?.isUpdateAvailable ?? false;
   } catch (error) {
     console.error("Could not check for app updates on launch:", error);
   }
