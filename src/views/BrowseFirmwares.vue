@@ -9,6 +9,7 @@ import {
   firmwareThumbnailUrls,
   isNewerFirmwareVersion,
   loadFirmwareCatalog,
+  DownloadedFirmware,
 } from "../services/firmwareCatalog";
 import type {
   FirmwareCatalogLicense,
@@ -19,15 +20,6 @@ import { finishEmulatorSession } from "../services/emulatorSession";
 import type { EmulatorSavePrompt } from "../services/emulatorSession";
 
 type DeviceFilter = "all" | "fm1" | "smk37";
-interface DownloadedFirmware {
-  id: string;
-  name: string;
-  version: string;
-  kind: string;
-  fileName: string;
-  path: string;
-  downloadedAt: string;
-}
 
 const store = new LazyStore("settings.json", { autoSave: true });
 const firmwares = ref<FirmwareRecord[]>([]);
@@ -210,13 +202,7 @@ function installedVersionsFor(firmware: FirmwareRecord) {
 }
 
 function hasAvailableUpdate(firmware: FirmwareRecord) {
-  if (typeof firmware.version !== "string" || !firmware.version.trim())
-    return false;
-  const newestInstalled = installedVersionsFor(firmware)[0];
-  return (
-    !!newestInstalled &&
-    isNewerFirmwareVersion(firmware.version, newestInstalled)
-  );
+  return isNewerFirmwareVersion(firmware, downloadedFirmwares.value);
 }
 
 async function downloadFirmware(
@@ -228,10 +214,7 @@ async function downloadFirmware(
   downloadMessage.value = "";
   downloadIsError.value = false;
   try {
-    const packageUrl = new URL(
-      firmware.pkg,
-      `${new URL(repositoryUrl.value).origin}/`,
-    );
+    const packageUrl = new URL(firmware.pkg, repositoryUrl.value);
     if (!["https:", "http:"].includes(packageUrl.protocol))
       throw new Error("The firmware package URL must use HTTP or HTTPS.");
     const fileName = decodeURIComponent(
@@ -301,7 +284,7 @@ async function downloadFirmware(
   } catch (error) {
     downloadIsError.value = true;
     downloadMessage.value =
-      error instanceof Error ? error.message : "Firmware download failed.";
+      error instanceof Error ? error.message : String(error);
     return false;
   } finally {
     downloadingId.value = "";
@@ -356,9 +339,10 @@ async function tryFirmware(firmware: FirmwareRecord) {
     const saved = await finishEmulatorSession(session);
     if (saved) {
       downloadMessage.value = `Emulator session saved as ${saved.fileName}.${saved.warning ? ` ${saved.warning}` : ""}`;
-    } else if (!previouslyDownloaded) {
+    }
+    if (!previouslyDownloaded) {
       firmwareKeepPrompt.value = firmware;
-    } else {
+    } else if (!saved) {
       downloadMessage.value = "Emulator session not saved.";
     }
   } catch (error) {

@@ -12,8 +12,10 @@ import type { InstalledFirmware, InstalledVersion } from "../types/firmware";
 import {
   firmwareThumbnailUrls,
   getRepositoryUrl,
-  isNewerFirmwareVersion,
   loadFirmwareCatalog,
+  isNewerFirmwareVersion,
+
+
 } from "../services/firmwareCatalog";
 import type { FirmwareRecord } from "../services/firmwareCatalog";
 import type { MFlasherRequestPayload } from "../types/flasher";
@@ -200,7 +202,7 @@ function availableUpdate(firmware: InstalledFirmware) {
     )[0];
   if (
     !newestInstalled ||
-    !isNewerFirmwareVersion(latest.version, newestInstalled)
+    !isNewerFirmwareVersion(latest, scannedFirmwares.value)
   )
     return null;
   return latest;
@@ -343,10 +345,7 @@ async function downloadUpdate(firmware: InstalledFirmware) {
   updateDownloadingId.value = firmware.id;
   updateMessage.value = "";
   try {
-    const packageUrl = new URL(
-      update.pkg,
-      `${new URL(catalogRepositoryUrl.value).origin}/`,
-    );
+    const packageUrl = new URL(update.pkg, catalogRepositoryUrl.value);
     if (!["https:", "http:"].includes(packageUrl.protocol))
       throw new Error("The firmware package URL must use HTTP or HTTPS.");
     const fileName = decodeURIComponent(

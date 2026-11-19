@@ -28,6 +28,17 @@ export interface FirmwareRecord {
   [key: string]: unknown;
 }
 
+export interface DownloadedFirmware {
+  id: string;
+  name: string;
+  version: string;
+  kind: string;
+  fileName: string;
+  path: string;
+  downloadedAt: string;
+}
+
+
 export interface FirmwareCatalog {
   updated: string;
   repositoryUrl: string;
@@ -65,15 +76,16 @@ export async function clearFirmwareCatalogCache() {
 }
 
 export function isNewerFirmwareVersion(
-  version: string,
-  installedVersion: string,
+  firmware: FirmwareRecord,
+  downloaded: DownloadedFirmware[],
 ): boolean {
-  return (
-    version.localeCompare(installedVersion, undefined, {
-      numeric: true,
-      sensitivity: "base",
-    }) > 0
+  
+  return downloaded.some(
+    (download: DownloadedFirmware) =>
+      firmware.id == download.id &&
+      download.version !== (firmware.version ?? ""),
   );
+
 }
 
 export async function getRepositoryUrl() {
