@@ -61,6 +61,9 @@ function formatStars(value: unknown) {
       <p class="firmware-result-card__author">
         {{ firmware.author || firmware.repo || firmware.id }}
       </p>
+      <div class="firmware-result-card__description">
+        {{ firmware.what || "-" }}
+      </div>
       <div class="firmware-result-card__tags">
         <span>{{ firmware.kind || "Other" }}</span>
         <span v-if="firmware.lic">{{ firmware.lic }}</span>
@@ -165,6 +168,18 @@ function formatStars(value: unknown) {
     monospace;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.firmware-result-card__description {
+  height: 4.5em;
+  margin: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  color: #b9b0a7;
+  font:
+    12px/1.5 "Share Tech Mono",
+    monospace;
+  -webkit-mask-image: linear-gradient(to bottom, #000 66.67%, transparent);
+  mask-image: linear-gradient(to bottom, #000 66.67%, transparent);
 }
 .firmware-result-card__tags {
   display: flex;
