@@ -10,12 +10,14 @@ import DownloadedFirmwares from './views/DownloadedFirmwares.vue'
 import BackupsSaves from './views/BackupsSaves.vue'
 import SettingsView from './views/SettingsView.vue'
 import MFlasherView from './views/MFlasherView.vue'
+import { appVersion, isNewerAppVersion } from './services/appVersion'
 import type { MFlasherLcdState, MFlasherRequest, MFlasherRequestPayload } from './types/flasher'
 
 type View = 'browse' | 'downloaded' | 'backups' | 'settings' | 'lcd'
 interface SaveFilter { firmwareId: string; version: string }
 const activeView = ref<View>('browse')
 const welcomeVisible = ref(false)
+const welcomeMode = ref<'newuser' | 'changelog'>('newuser')
 const appStateLoaded = ref(false)
 const saveFilter = ref<SaveFilter | null>(null)
 const requestedFirmwareDetailsId = ref<string | null>(null)
@@ -64,18 +66,24 @@ function clearFlasherRequest(requestId: number) {
 
 onMounted(async () => {
   try {
+    let hasLaunched: boolean
+    let previousVersion: string | null | undefined
     if (isTauri()) {
       const savedView = await libraryStore.get<string>('lastActiveView')
       if (savedView && validViews.includes(savedView as View)) activeView.value = savedView as View
-      const hasLaunched = await libraryStore.get<boolean>('hasCompletedWelcome')
-      welcomeVisible.value = import.meta.env.DEV || !hasLaunched
+      hasLaunched = (await libraryStore.get<boolean>('hasCompletedWelcome')) === true
+      previousVersion = await libraryStore.get<string>('lastWelcomeVersion')
     } else {
       const savedView = localStorage.getItem('fm-mate.lastActiveView')
       if (savedView && validViews.includes(savedView as View)) activeView.value = savedView as View
-      welcomeVisible.value = import.meta.env.DEV || localStorage.getItem('fm-mate.hasCompletedWelcome') !== 'true'
+      hasLaunched = localStorage.getItem('fm-mate.hasCompletedWelcome') === 'true'
+      previousVersion = localStorage.getItem('fm-mate.lastWelcomeVersion')
     }
-  } catch {
-    // Fall back to the default tab and show onboarding if stored app state is unavailable.
+    const updated = hasLaunched && (!previousVersion || isNewerAppVersion(appVersion, previousVersion))
+    welcomeMode.value = hasLaunched ? 'changelog' : 'newuser'
+    welcomeVisible.value = import.meta.env.DEV || !hasLaunched || updated
+  } catch (error) {
+    console.error('Could not load welcome state:', error)
     welcomeVisible.value = true
   }
   appStateLoaded.value = true
@@ -109,12 +117,14 @@ async function dismissWelcome() {
   try {
     if (isTauri()) {
       await libraryStore.set('hasCompletedWelcome', true)
+      await libraryStore.set('lastWelcomeVersion', appVersion)
       await libraryStore.save()
     } else {
       localStorage.setItem('fm-mate.hasCompletedWelcome', 'true')
+      localStorage.setItem('fm-mate.lastWelcomeVersion', appVersion)
     }
-  } catch {
-    // Keep the current session usable if onboarding state could not be saved.
+  } catch (error) {
+    console.error('Could not save welcome state:', error)
   }
 }
 </script>
@@ -122,7 +132,7 @@ async function dismissWelcome() {
 <template>
   <main class="app-shell">
     <AppHeader :active-view="activeView" :lcd-state="flasherLcdState" @navigate="activeView = $event" />
-    <WelcomeDialog v-if="welcomeVisible" @dismiss="dismissWelcome" />
+    <WelcomeDialog v-if="welcomeVisible" :mode="welcomeMode" :version="appVersion" @dismiss="dismissWelcome" />
     <EmulatorSaveDialog />
     <div class="app-content">
       <KeepAlive>
