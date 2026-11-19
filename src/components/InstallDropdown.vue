@@ -67,7 +67,7 @@ function selectVersion(version: string) {
 }
 .install-dropdown > .install-button {
   display: flex;
-  width: 100%;
+  width: 100px;
   min-width: 0;
   align-items: center;
   justify-content: center;

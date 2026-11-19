@@ -262,7 +262,17 @@ function openFromKeyboard(event: KeyboardEvent) {
             :disabled="trying || downloading"
             @click="emit('tryFirmware')"
           >
-            {{ trying ? "RUNNING…" : "TRY" }}
+            <svg
+              v-if="!trying"
+              class="try-firmware-button__icon"
+              viewBox="0 0 16 16"
+              aria-hidden="true"
+            >
+              <path d="M4 2.5v11l9-5.5z" fill="currentColor" />
+            </svg>
+            <span :class="{ 'try-firmware-button__running': trying }">
+              {{ trying ? "RUNNING…" : "TRY" }}
+            </span>
           </button>
           <button
             class="outline-button detailed-result-card__download"
@@ -404,7 +414,17 @@ function openFromKeyboard(event: KeyboardEvent) {
           :disabled="trying || downloading"
           @click="emit('tryFirmware')"
         >
-          {{ trying ? "RUNNING…" : "TRY" }}
+          <svg
+            v-if="!trying"
+            class="try-firmware-button__icon"
+            viewBox="0 0 16 16"
+            aria-hidden="true"
+          >
+            <path d="M4 2.5v11l9-5.5z" fill="currentColor" />
+          </svg>
+          <span :class="{ 'try-firmware-button__running': trying }">
+            {{ trying ? "RUNNING…" : "TRY" }}
+          </span>
         </button>
         <button
           class="outline-button detailed-result-card__download"
@@ -549,7 +569,7 @@ function openFromKeyboard(event: KeyboardEvent) {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 8px;
+  gap: 16px;
 }
 .detailed-result-card__updated {
   color: #a49b97;
@@ -589,6 +609,7 @@ function openFromKeyboard(event: KeyboardEvent) {
 }
 .detailed-result-card__download {
   margin-top: auto;
+  width: 100px;
 }
 .detailed-result-card__download:disabled {
   opacity: 0.55;
@@ -620,12 +641,13 @@ function openFromKeyboard(event: KeyboardEvent) {
 }
 .detailed-result-card__installed-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 76px 100px;
   gap: 8px;
-  width: 100%;
   margin-top: auto;
 }
 .detailed-result-card__installed-actions > .outline-button {
+  box-sizing: border-box;
+  width: 76px;
   min-height: 38px;
   padding: 7px 12px;
 }
@@ -636,18 +658,32 @@ function openFromKeyboard(event: KeyboardEvent) {
   min-height: 38px;
 }
 .try-firmware-button {
-  color: #c2b3dc;
-  background: #292625;
-  border: 1px solid #665772;
+  box-sizing: border-box;
+  display: inline-flex;
+  width: 76px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  color: #b6e5b1;
+  background: #26342a;
+  border: 1px solid #4e7953;
   font:
-    700 11px "Share Tech Mono",
+    700 15px "Share Tech Mono",
     monospace;
   cursor: pointer;
 }
+.try-firmware-button__icon {
+  width: 13px;
+  height: 13px;
+  flex: none;
+}
+.try-firmware-button__running {
+  font-size: 11px;
+}
 .try-firmware-button:hover:not(:disabled) {
-  color: #e4d8f4;
-  background: #332e35;
-  border-color: #9b83b7;
+  color: #e5ffe1;
+  background: #263a30;
+  border-color: #79ac7e;
 }
 .try-firmware-button:disabled {
   opacity: 0.55;
