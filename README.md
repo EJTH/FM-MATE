@@ -33,6 +33,7 @@ Visit the [releases page](../../releases) to download the latest stable version.
 
 # Support!
 If you like FM-Mate, consider supporting me on [Ko-fi](https://ko-fi.com/donelias)!
+Share the project, contribute & star the repository!
 
 # Building
 
