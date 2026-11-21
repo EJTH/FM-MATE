@@ -7,13 +7,6 @@ export type MFlasherRequestPayload =
       firmwareName: string;
       version: string;
     }
-  | {
-      type: "switch-firmware";
-      firmwareId: string;
-      firmwareName: string;
-      version: string;
-      automaticallyBackup: boolean;
-    }
   | { type: "flash-save"; save: InstalledSave }
   | { type: "backup" }
   | { type: "flash-bootloader" };

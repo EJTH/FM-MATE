@@ -344,26 +344,11 @@ async function downloadFirmware(
 }
 
 async function beginFirmwareInstall(firmware: FirmwareRecord) {
-  let automaticallyBackup = true;
-  try {
-    const preferences = isTauri()
-      ? await store.get<{ automaticallyBackupBeforeSwitching?: boolean }>(
-          "preferences",
-        )
-      : (JSON.parse(localStorage.getItem("fm-mate.preferences") ?? "{}") as {
-          automaticallyBackupBeforeSwitching?: boolean;
-        });
-    automaticallyBackup =
-      preferences?.automaticallyBackupBeforeSwitching ?? true;
-  } catch {
-    // Use the enabled default if saved settings are unavailable.
-  }
   emit("openFlasher", {
-    type: "switch-firmware",
+    type: "flash-firmware",
     firmwareId: firmware.id,
     firmwareName: firmware.name,
     version: firmware.version ?? "unknown",
-    automaticallyBackup,
   });
 }
 

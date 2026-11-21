@@ -68,7 +68,6 @@ const backupProgress = ref<number | null>(null);
 const flashProgress = ref<number | null>(null);
 const lcdStatusError = ref("");
 const lcdCompletion = ref("");
-const switchStage = ref<"choose" | "flash">("choose");
 const upgradeFromV15 = ref(false);
 const confirmationDialog = ref<{
   title: string;
@@ -145,12 +144,7 @@ function submitBackupFileName() {
 }
 const pendingActionReady = computed(() => {
   const request = props.pendingAction;
-  if (
-    request?.type === "backup" ||
-    (request?.type === "switch-firmware" && request.automaticallyBackup)
-  ) {
-    return !!selectedBackupTarget.value;
-  }
+  if (request?.type === "backup") return !!selectedBackupTarget.value;
   return true;
 });
 const displayTitle = computed(() => {
@@ -192,12 +186,6 @@ const pendingActionLabel = computed(() => {
   if (!request) return "";
   if (request.type === "backup") return "PERFORM BACKUP";
   if (request.type === "flash-bootloader") return "FLASH M-BOOTLOADER";
-  if (request.type === "switch-firmware") {
-    if (request.automaticallyBackup) return "BACKUP & FLASH";
-    return switchStage.value === "flash"
-      ? "FLASH FIRMWARE"
-      : "BACKUP BEFORE FLASH?";
-  }
   if (request.type === "flash-firmware") return "FLASH FIRMWARE";
   return request.save.fileName.toLocaleLowerCase().endsWith(".fwsc")
     ? "BACKUP"
@@ -213,8 +201,6 @@ const pendingActionDetail = computed(() => {
     return selectedBackupOption.value
       ? `${selectedBackupOption.value.firmwareName} ${selectedBackupOption.value.version}`
       : "Select firmware and version below";
-  if (request.type === "switch-firmware")
-    return `${request.firmwareName} ${request.version}`;
   return `${request.firmwareName} ${request.version}`;
 });
 const lcdMessage = computed(() => {
@@ -325,7 +311,6 @@ function quoteCommandArgument(value: string) {
 async function showPendingCommand(request: MFlasherRequest, force = false) {
   if (!force && shownRequestId === request.requestId) return;
   shownRequestId = request.requestId;
-  if (!force && request.type === "switch-firmware") switchStage.value = "choose";
   const upgrade = upgradeFromV15.value;
   try {
     const root =
@@ -348,10 +333,7 @@ async function showPendingCommand(request: MFlasherRequest, force = false) {
         "saves",
       );
       command = `m-flasher backup ${quoteCommandArgument(savesFolder)} --yes`;
-    } else if (
-      request.type === "flash-firmware" ||
-      request.type === "switch-firmware"
-    ) {
+    } else if (request.type === "flash-firmware") {
       const firmwareFile = nativePath(
         root,
         request.firmwareId,
@@ -362,28 +344,7 @@ async function showPendingCommand(request: MFlasherRequest, force = false) {
       const flashCommand = upgrade
         ? `m-flasher firmware <original FM-1 v15 firmware> --yes --restart\n${selectedFlashCommand}`
         : selectedFlashCommand;
-      if (request.type === "switch-firmware" && request.automaticallyBackup) {
-        const target = selectedBackupOption.value;
-        if (!target)
-          throw new Error(
-            "Select the installed firmware version to back up before flashing.",
-          );
-        const savesFolder = nativePath(
-          root,
-          target.firmwareId,
-          target.version,
-          "saves",
-        );
-        command = `m-flasher backup ${quoteCommandArgument(savesFolder)} --yes\n${flashCommand}`;
-      } else if (request.type === "switch-firmware") {
-        const target = selectedBackupOption.value;
-        const backupCommand = target
-          ? `m-flasher backup ${quoteCommandArgument(nativePath(root, target.firmwareId, target.version, "saves"))} --yes`
-          : "Select a firmware version to see the backup command.";
-        command = `[BACKUP THEN FLASH]\n${backupCommand}\n${flashCommand}\n[SKIP BACKUP]\n${flashCommand}`;
-      } else {
-        command = flashCommand;
-      }
+      command = flashCommand;
     } else {
       const file = nativePath(
         root,
@@ -678,10 +639,7 @@ async function backupDevice(): Promise<boolean> {
 }
 
 async function flashFirmwareRequest(
-  request: Extract<
-    MFlasherRequest,
-    { type: "flash-firmware" | "switch-firmware" }
-  >,
+  request: Extract<MFlasherRequest, { type: "flash-firmware" }>,
 ): Promise<boolean> {
   busyAction.value = "firmware";
   clearLcdFeedback();
@@ -733,50 +691,6 @@ async function flashFirmwareRequest(
   } finally {
     unlisten?.();
     busyAction.value = "";
-  }
-}
-
-async function backupBeforeSwitch() {
-  const request = props.pendingAction;
-  if (request?.type !== "switch-firmware") return;
-  if (await prepareSwitchBackup()) switchStage.value = "flash";
-}
-
-async function prepareSwitchBackup(): Promise<boolean> {
-  if (!detected.value?.deviceFound) await findDevice();
-  if (!detected.value?.deviceFound) {
-    const message =
-      "Connect a device before backing it up for the firmware switch.";
-    lastError.value = message;
-    lcdStatusError.value = message;
-    return false;
-  }
-  return backupDevice();
-}
-
-function skipSwitchBackup() {
-  switchStage.value = "flash";
-  terminalLines.value.push(
-    `[${new Date().toLocaleTimeString()}] Backup skipped by user.`,
-  );
-}
-
-async function flashAfterSwitchBackup() {
-  const request = props.pendingAction;
-  if (request?.type !== "switch-firmware" || switchStage.value !== "flash")
-    return;
-  if (await flashFirmwareRequest(request)) {
-    emit("actionComplete", request.requestId);
-  }
-}
-
-async function confirmBackupAndFlash() {
-  const request = props.pendingAction;
-  if (request?.type !== "switch-firmware" || !request.automaticallyBackup)
-    return;
-  if (!(await prepareSwitchBackup())) return;
-  if (await flashFirmwareRequest(request)) {
-    emit("actionComplete", request.requestId);
   }
 }
 
@@ -874,8 +788,7 @@ watch(
 
 function updateUpgradePreview() {
   const request = props.pendingAction;
-  if (request?.type === "flash-firmware" || request?.type === "switch-firmware")
-    void showPendingCommand(request, true);
+  if (request?.type === "flash-firmware") void showPendingCommand(request, true);
 }
 
 function confirmPendingAction() {
@@ -918,6 +831,15 @@ function cancelPendingAction() {
             {{ primaryActionLabel }}
           </button>
           <button
+            v-if="pendingAction?.type === 'flash-firmware'"
+            class="action-button"
+            type="button"
+            :disabled="!!busyAction || !selectedBackupTarget"
+            @click="backupDevice"
+          >
+            {{ busyAction === "backup" ? "SAVING…" : "BACKUP" }}
+          </button>
+          <button
             v-if="pendingAction"
             class="outline-button pending-cancel"
             type="button"
@@ -927,73 +849,6 @@ function cancelPendingAction() {
             CANCEL
           </button>
         </div>
-        <div
-          v-else-if="pendingAction?.type === 'switch-firmware'"
-          class="pending-actions pending-actions--switch"
-        >
-          <template v-if="pendingAction.automaticallyBackup">
-            <button
-              class="action-button action-button--primary"
-              type="button"
-              :disabled="!!busyAction || !pendingActionReady"
-              @click="confirmBackupAndFlash"
-            >
-              BACKUP &amp; FLASH
-            </button>
-            <button
-              class="outline-button pending-cancel"
-              type="button"
-              :disabled="!!busyAction"
-              @click="cancelPendingAction"
-            >
-              CANCEL
-            </button>
-          </template>
-          <template v-else-if="switchStage === 'choose'">
-            <button
-              class="action-button action-button--primary"
-              type="button"
-              :disabled="!!busyAction || !selectedBackupTarget"
-              @click="backupBeforeSwitch"
-            >
-              BACKUP THEN FLASH
-            </button>
-            <button
-              class="action-button"
-              type="button"
-              :disabled="!!busyAction"
-              @click="skipSwitchBackup"
-            >
-              SKIP BACKUP
-            </button>
-            <button
-              class="outline-button pending-cancel"
-              type="button"
-              :disabled="!!busyAction"
-              @click="cancelPendingAction"
-            >
-              CANCEL
-            </button>
-          </template>
-          <template v-else>
-            <button
-              class="action-button action-button--primary"
-              type="button"
-              :disabled="!!busyAction"
-              @click="flashAfterSwitchBackup"
-            >
-              FLASH FIRMWARE
-            </button>
-            <button
-              class="outline-button pending-cancel"
-              type="button"
-              :disabled="!!busyAction"
-              @click="cancelPendingAction"
-            >
-              CANCEL
-            </button>
-          </template>
-        </div>
         <div v-else-if="pendingAction" class="pending-actions">
           <button
             class="action-button action-button--primary"
@@ -1002,6 +857,15 @@ function cancelPendingAction() {
             @click="confirmPendingAction"
           >
             {{ pendingActionLabel }}
+          </button>
+          <button
+            v-if="pendingAction.type === 'flash-firmware'"
+            class="action-button"
+            type="button"
+            :disabled="!!busyAction || !selectedBackupTarget"
+            @click="backupDevice"
+          >
+            {{ busyAction === "backup" ? "SAVING…" : "BACKUP" }}
           </button>
           <button
             v-if="
@@ -1055,10 +919,7 @@ function cancelPendingAction() {
           </button>
         </div>
         <div
-          v-if="
-            pendingAction?.type === 'flash-firmware' ||
-            pendingAction?.type === 'switch-firmware'
-          "
+          v-if="pendingAction?.type === 'flash-firmware'"
           class="upgrade-option"
         >
           <label>

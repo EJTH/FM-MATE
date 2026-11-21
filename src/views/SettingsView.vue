@@ -22,7 +22,6 @@ import type { MFlasherRequestPayload } from "../types/flasher";
 const emit = defineEmits<{ openFlasher: [request: MFlasherRequestPayload] }>();
 
 const preferences = reactive({
-  automaticallyBackupBeforeSwitching: true,
   firmwareRepositoryUrl: DEFAULT_FIRMWARE_REPOSITORY_URL,
   firmwareArchiveCommit: "",
   firmwareArchiveRepositoryUrl: "",
@@ -219,22 +218,6 @@ async function clearCache() {
       </div>
     </div>
     <div class="settings-card">
-      <div class="settings-group">
-        <h2>BACKUP</h2>
-        <label class="setting-row"
-          ><span
-            ><strong>Automatically backup before switching</strong
-            ><small
-              >Create a device backup before installing a different
-              firmware.</small
-            ></span
-          ><input
-            v-model="preferences.automaticallyBackupBeforeSwitching"
-            type="checkbox"
-            :disabled="!settingsLoaded"
-            @change="savePreferences"
-        /></label>
-      </div>
       <form class="settings-group" @submit.prevent="saveFirmwareFolderPath()">
         <h2>FIRMWARE STORAGE</h2>
         <label class="repo-label" for="firmware-folder-path"

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onActivated, ref, watch } from "vue";
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { LazyStore } from "@tauri-apps/plugin-store";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import FirmwareThumbnail from "../components/FirmwareThumbnail.vue";
 import NewVersionBanner from "../components/NewVersionBanner.vue";
@@ -38,7 +37,6 @@ const emit = defineEmits<{
 }>();
 
 
-const store = new LazyStore("settings.json", { autoSave: true });
 const scannedFirmwares = ref<ScannedFirmware[]>([]);
 const activeUnitFirmware = ref<UnitFirmware | null>(null);
 const favoriteIds = ref<string[]>([]);
@@ -467,26 +465,11 @@ async function confirmDeleteVersion() {
 }
 
 async function installFirmware(firmware: InstalledFirmware, version: string) {
-  let automaticallyBackup = true;
-  try {
-    const preferences = isTauri()
-      ? await store.get<{ automaticallyBackupBeforeSwitching?: boolean }>(
-          "preferences",
-        )
-      : (JSON.parse(localStorage.getItem("fm-mate.preferences") ?? "{}") as {
-          automaticallyBackupBeforeSwitching?: boolean;
-        });
-    automaticallyBackup =
-      preferences?.automaticallyBackupBeforeSwitching ?? true;
-  } catch {
-    // Keep the application's default preference if settings could not be read.
-  }
   emit("openFlasher", {
-    type: "switch-firmware",
+    type: "flash-firmware",
     firmwareId: firmware.id,
     firmwareName: firmware.name,
     version,
-    automaticallyBackup,
   });
 }
 </script>
