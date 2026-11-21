@@ -834,7 +834,7 @@ function cancelPendingAction() {
             v-if="pendingAction?.type === 'flash-firmware'"
             class="action-button"
             type="button"
-            :disabled="!!busyAction || !selectedBackupTarget"
+            :disabled="!!busyAction || !detected?.deviceFound || !selectedBackupTarget"
             @click="backupDevice"
           >
             {{ busyAction === "backup" ? "SAVING…" : "BACKUP" }}

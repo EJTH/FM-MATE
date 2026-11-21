@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onActivated, ref, watch } from "vue";
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { LazyStore } from "@tauri-apps/plugin-store";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import FirmwareThumbnail from "../components/FirmwareThumbnail.vue";
 import NewVersionBanner from "../components/NewVersionBanner.vue";
@@ -36,6 +37,7 @@ const emit = defineEmits<{
   updatesFilterApplied: [requestId: number];
 }>();
 
+const store = new LazyStore("settings.json", { autoSave: true });
 
 const scannedFirmwares = ref<ScannedFirmware[]>([]);
 const activeUnitFirmware = ref<UnitFirmware | null>(null);
